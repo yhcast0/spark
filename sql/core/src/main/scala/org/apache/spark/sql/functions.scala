@@ -2732,8 +2732,36 @@ object functions {
   }
 
   /**
-   * Given a timestamp, which corresponds to a certain time of day in UTC, returns another timestamp
-   * that corresponds to the same time of day in the given timezone.
+   * Returns timestamp truncated to the unit specified by the format.
+   *
+   * For example, `date_tunc("2018-11-19 12:01:19", "year")` returns 2018-01-01 00:00:00
+   *
+   * @param format: 'year', 'yyyy', 'yy' for truncate by year,
+   *                'month', 'mon', 'mm' for truncate by month,
+   *                'day', 'dd' for truncate by day,
+   *                Other options are: 'second', 'minute', 'hour', 'week', 'month', 'quarter'
+   * @param timestamp A date, timestamp or string. If a string, the data must be in a format that
+   *                  can be cast to a timestamp, such as `yyyy-MM-dd` or `yyyy-MM-dd HH:mm:ss.SSSS`
+   * @return A timestamp, or null if `timestamp` was a string that could not be cast to a timestamp
+   *         or `format` was an invalid value
+   * @group datetime_funcs
+   * @since 2.3.0
+   */
+  def date_trunc(format: String, timestamp: Column): Column = withExpr {
+    TruncTimestamp(Literal(format), timestamp.expr)
+  }
+
+  /**
+   * Given a timestamp like '2017-07-14 02:40:00.0', interprets it as a time in UTC, and renders
+   * that time as a timestamp in the given time zone. For example, 'GMT+1' would yield
+   * '2017-07-14 03:40:00.0'.
+   *
+   * @param ts A date, timestamp or string. If a string, the data must be in a format that can be
+   *           cast to a timestamp, such as `yyyy-MM-dd` or `yyyy-MM-dd HH:mm:ss.SSSS`
+   * @param tz A string detailing the time zone that the input should be adjusted to, such as
+   *           `Europe/London`, `PST` or `GMT+5`
+   * @return A timestamp, or null if `ts` was a string that could not be cast to a timestamp or
+   *         `tz` was an invalid value
    * @group datetime_funcs
    * @since 1.5.0
    */
