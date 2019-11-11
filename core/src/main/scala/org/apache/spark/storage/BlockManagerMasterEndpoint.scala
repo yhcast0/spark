@@ -17,6 +17,7 @@
 
 package org.apache.spark.storage
 
+import java.io.IOException
 import java.util.{HashMap => JHashMap}
 
 import scala.collection.mutable
@@ -224,11 +225,21 @@ class BlockManagerMasterEndpoint(
     val requiredBlockManagers = blockManagerInfo.values.filter { info =>
       removeFromDriver || !info.blockManagerId.isDriver
     }
-    Future.sequence(
-      requiredBlockManagers.map { bm =>
-        bm.slaveEndpoint.ask[Int](removeMsg)
-      }.toSeq
-    )
+    val futures = requiredBlockManagers.map { bm =>
+      bm.slaveEndpoint.ask[Int](removeMsg).recover {
+        case e: IOException =>
+          logWarning(s"Error trying to remove broadcast $broadcastId from block manager " +
+            s"${bm.blockManagerId}", e)
+          0 // zero blocks were removed
+      }
+    }.toSeq
+    val blocksToRemove = blockLocations.keySet().asScala
+      .collect {
+        case broadcastId@BroadcastBlockId(`broadcastId`, _) =>
+          broadcastId
+      }
+    blocksToRemove.foreach(blockLocations.remove)
+    Future.sequence(futures)
   }
 
   private def removeBlockManager(blockManagerId: BlockManagerId) {
