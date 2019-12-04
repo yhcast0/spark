@@ -31,6 +31,7 @@ import org.apache.hadoop.mapreduce.lib.input.FileSplit
 import org.apache.hadoop.mapreduce.task.TaskAttemptContextImpl
 import org.apache.parquet.filter2.compat.FilterCompat
 import org.apache.parquet.filter2.predicate.FilterApi
+import org.apache.parquet.format.ParquetMetrics
 import org.apache.parquet.format.converter.ParquetMetadataConverter.SKIP_ROW_GROUPS
 import org.apache.parquet.hadoop._
 import org.apache.parquet.hadoop.ParquetOutputFormat.JobSummaryLevel
@@ -409,7 +410,7 @@ class ParquetFileFormat
         ParquetInputFormat.setFilterPredicate(hadoopAttemptContext.getConfiguration, pushed.get)
       }
       val taskContext = Option(TaskContext.get())
-      if (enableVectorizedReader) {
+      val iter = if (enableVectorizedReader) {
         val vectorizedReader = new VectorizedParquetRecordReader(
           convertTz.orNull, enableOffHeapColumnVector && taskContext.isDefined, capacity)
         val iter = new RecordReaderIterator(vectorizedReader)
@@ -453,6 +454,11 @@ class ParquetFileFormat
             .map(d => appendPartitionColumns(joinedRow(d, file.partitionValues)))
         }
       }
+      if (taskContext.isDefined) {
+        val metrics = taskContext.get.taskMetrics()
+        metrics.setAdditionalMetric("Parquet Metric:" + ParquetMetrics.get().toString)
+      }
+      iter
     }
   }
 

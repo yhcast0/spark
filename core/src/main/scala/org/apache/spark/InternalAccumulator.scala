@@ -30,6 +30,7 @@ private[spark] object InternalAccumulator {
   val INPUT_METRICS_PREFIX = METRICS_PREFIX + "input."
 
   // Names of internal task level metrics
+  val ADDITIONAL_METRIC = "additionalMetric"
   val EXECUTOR_DESERIALIZE_TIME = METRICS_PREFIX + "executorDeserializeTime"
   val EXECUTOR_DESERIALIZE_CPU_TIME = METRICS_PREFIX + "executorDeserializeCpuTime"
   val EXECUTOR_RUN_TIME = METRICS_PREFIX + "executorRunTime"
