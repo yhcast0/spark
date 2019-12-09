@@ -43,7 +43,7 @@ import org.apache.spark.util._
  */
 @DeveloperApi
 class TaskMetrics private[spark] () extends Serializable {
-  private val additionalMetric = new AdditionalMetricAccumulator
+  private val _additionalMetric = new AdditionalMetricAccumulator
 
   // Each metric is internally represented as an accumulator
   private val _executorDeserializeTime = new LongAccumulator
@@ -128,10 +128,10 @@ class TaskMetrics private[spark] () extends Serializable {
   }
 
   // Setters and increment-ers
-  def addAdditionalMetric(value: String): Unit =
-    additionalMetric.add(value)
+  def appendAdditionalMetric(value: String): Unit =
+    _additionalMetric.add(value)
   def setAdditionalMetric(value: String): Unit =
-    additionalMetric.setValue(value)
+    _additionalMetric.setValue(value)
 
   private[spark] def setExecutorDeserializeTime(v: Long): Unit =
     _executorDeserializeTime.setValue(v)
@@ -214,7 +214,7 @@ class TaskMetrics private[spark] () extends Serializable {
 
   import InternalAccumulator._
   @transient private[spark] lazy val nameToAccums = LinkedHashMap(
-    ADDITIONAL_METRIC -> additionalMetric,
+    ADDITIONAL_METRIC -> _additionalMetric,
     EXECUTOR_DESERIALIZE_TIME -> _executorDeserializeTime,
     EXECUTOR_DESERIALIZE_CPU_TIME -> _executorDeserializeCpuTime,
     EXECUTOR_RUN_TIME -> _executorRunTime,
