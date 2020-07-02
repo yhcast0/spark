@@ -39,7 +39,7 @@ case class PlanQueryStage(conf: SQLConf) extends Rule[SparkPlan] {
     val newPlan = if (!conf.exchangeReuseEnabled) {
       plan.transformUp {
         case e: ShuffleExchangeExec =>
-          ShuffleQueryStageInput(ShuffleQueryStage(e), e.output)
+          ShuffleQueryStageInput(ShuffleQueryStage(e), e.output, isRepartition = false)
         case e: BroadcastExchangeExec =>
           BroadcastQueryStageInput(BroadcastQueryStage(e), e.output)
       }
@@ -57,15 +57,19 @@ case class PlanQueryStage(conf: SQLConf) extends Rule[SparkPlan] {
             // Keep the output of this exchange, the following plans require that to resolve
             // attributes.
             exchange match {
-              case e: ShuffleExchangeExec => ShuffleQueryStageInput(
-                samePlan.get.asInstanceOf[ShuffleQueryStage], exchange.output)
+              case e: ShuffleExchangeExec =>
+                ShuffleQueryStageInput(samePlan.get.asInstanceOf[ShuffleQueryStage],
+                  exchange.output,
+                  isRepartition = e.isRepartition.get)
               case e: BroadcastExchangeExec => BroadcastQueryStageInput(
                 samePlan.get.asInstanceOf[BroadcastQueryStage], exchange.output)
             }
           } else {
             val queryStageInput = exchange match {
               case e: ShuffleExchangeExec =>
-                ShuffleQueryStageInput(ShuffleQueryStage(e), e.output)
+                ShuffleQueryStageInput(ShuffleQueryStage(e),
+                  e.output,
+                  isRepartition = e.isRepartition.get)
               case e: BroadcastExchangeExec =>
                 BroadcastQueryStageInput(BroadcastQueryStage(e), e.output)
             }

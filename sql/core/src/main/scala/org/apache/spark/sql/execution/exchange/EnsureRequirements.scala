@@ -96,6 +96,8 @@ case class EnsureRequirements(conf: SQLConf) extends Rule[SparkPlan] {
               // If child is an exchange, we replace it with a new one having defaultPartitioning.
               case ShuffleExchangeExec(_, c, Some(false)) =>
                 ShuffleExchangeExec(defaultPartitioning, c)
+              case ShuffleExchangeExec(_, c, Some(true)) =>
+                ShuffleExchangeExec(defaultPartitioning, c, Some(true))
               case _ => ShuffleExchangeExec(defaultPartitioning, child)
             }
           }

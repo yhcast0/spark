@@ -126,12 +126,9 @@ abstract class QueryStage extends UnaryExecNode {
       }
     }
 
-    val isRepartition = if (oldChild.isInstanceOf[ShuffleExchangeExec]) {
-      oldChild.asInstanceOf[ShuffleExchangeExec].isRepartition match {
-        case Some(true) => true
-        case _ => false
-      }
-    } else false
+    val isRepartition = queryStageInputs.forall {
+      _.isRepartition
+    }
 
     // Check pre-shuffle partitions num
     val numPreShufflePartitionsCheck =
@@ -150,8 +147,8 @@ abstract class QueryStage extends UnaryExecNode {
         // If a skewed join is detected and optimized, we will omit the skewed partitions when
         // estimate the partition start and end indices.
         val (partitionStartIndices, partitionEndIndices) =
-          exchangeCoordinator.estimatePartitionStartEndIndices(
-            childMapOutputStatistics, queryStageInputs(0).skewedPartitions.get)
+        exchangeCoordinator.estimatePartitionStartEndIndices(
+          childMapOutputStatistics, queryStageInputs(0).skewedPartitions.get)
         queryStageInputs.foreach { i =>
           i.partitionStartIndices = Some(partitionStartIndices)
           i.partitionEndIndices = Some(partitionEndIndices)
@@ -209,12 +206,12 @@ abstract class QueryStage extends UnaryExecNode {
   }
 
   override def generateTreeString(
-      depth: Int,
-      lastChildren: Seq[Boolean],
-      builder: StringBuilder,
-      verbose: Boolean,
-      prefix: String = "",
-      addSuffix: Boolean = false): StringBuilder = {
+                                   depth: Int,
+                                   lastChildren: Seq[Boolean],
+                                   builder: StringBuilder,
+                                   verbose: Boolean,
+                                   prefix: String = "",
+                                   addSuffix: Boolean = false): StringBuilder = {
     child.generateTreeString(depth, lastChildren, builder, verbose, "*")
   }
 }
@@ -255,7 +252,7 @@ case class BroadcastQueryStage(var child: SparkPlan) extends QueryStage {
 
   private var prepared = false
 
-  def prepareBroadcast() : Unit = synchronized {
+  def prepareBroadcast(): Unit = synchronized {
     if (!prepared) {
       executeChildStages()
       child = CollapseCodegenStages(sqlContext.conf).apply(child)

@@ -83,13 +83,13 @@ abstract class QueryStageInput extends LeafExecNode {
  * child stage is reused by another ShuffleQueryStageInput, they can return RDDs with different
  * partitionStartIndices.
  */
-case class ShuffleQueryStageInput(
-                                   childStage: ShuffleQueryStage,
-                                   override val output: Seq[Attribute],
-                                   var isLocalShuffle: Boolean = false,
-                                   var skewedPartitions: Option[mutable.HashSet[Int]] = None,
-                                   var partitionStartIndices: Option[Array[Int]] = None,
-                                   var partitionEndIndices: Option[Array[Int]] = None)
+case class ShuffleQueryStageInput(childStage: ShuffleQueryStage,
+                                  override val output: Seq[Attribute],
+                                  var isLocalShuffle: Boolean = false,
+                                  var skewedPartitions: Option[mutable.HashSet[Int]] = None,
+                                  var partitionStartIndices: Option[Array[Int]] = None,
+                                  var partitionEndIndices: Option[Array[Int]] = None,
+                                  isRepartition: Boolean)
   extends QueryStageInput {
 
   override def outputPartitioning: Partitioning = partitionStartIndices.map {
