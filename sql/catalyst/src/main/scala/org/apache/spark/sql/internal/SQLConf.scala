@@ -1585,6 +1585,11 @@ object SQLConf {
       "uncompressed result. Specifying this can help protect the driver from out-of-memory errors.")
     .bytesConf(ByteUnit.BYTE)
     .createOptional
+
+  val DEFAULT_DATABASE_NAME =
+    buildConf("spark.sql.default.database")
+    .stringConf
+    .createWithDefault(null)
 }
 
 /**
@@ -2003,6 +2008,8 @@ class SQLConf extends Serializable with Logging {
   def setOpsPrecedenceEnforced: Boolean = getConf(SQLConf.LEGACY_SETOPS_PRECEDENCE_ENABLED)
 
   def maxCollectSize: Option[Long] = getConf(SQLConf.MAX_COLLECT_SIZE)
+
+  def defaultDataBase: String = getConf(SQLConf.DEFAULT_DATABASE_NAME)
 
   /** ********************** SQLConf functionality methods ************ */
 

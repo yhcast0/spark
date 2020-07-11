@@ -724,8 +724,9 @@ class Analyzer(
     private def lookupTableFromCatalog(
         u: UnresolvedRelation,
         defaultDatabase: Option[String] = None): LogicalPlan = {
+      val defaultDB = defaultDatabase.getOrElse[String](conf.defaultDataBase)
       val tableIdentWithDb = u.tableIdentifier.copy(
-        database = u.tableIdentifier.database.orElse(defaultDatabase))
+        database = u.tableIdentifier.database.orElse(Option(defaultDB)))
       try {
         catalog.lookupRelation(tableIdentWithDb)
       } catch {
