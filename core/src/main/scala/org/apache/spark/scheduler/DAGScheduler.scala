@@ -1511,7 +1511,7 @@ private[spark] class DAGScheduler(
                 // in the stage chains that connect to the `failedStage`. To speed up the stage
                 // traversing, we collect the stages to rollback first. If a stage needs to
                 // rollback, all its succeeding stages need to rollback to.
-                val stagesToRollback = scala.collection.mutable.HashSet(failedStage)
+                val stagesToRollback = scala.collection.mutable.HashSet[Stage](mapStage)
 
                 def collectStagesToRollback(stageChain: List[Stage]): Unit = {
                   if (stagesToRollback.contains(stageChain.head)) {
@@ -1551,6 +1551,10 @@ private[spark] class DAGScheduler(
                     }
 
                   case _ =>
+                }
+
+                if (mapStage.findMissingPartitions().length < mapStage.numTasks) {
+                  abortStage(mapStage, generateErrorMessage(mapStage), None)
                 }
               }
 
