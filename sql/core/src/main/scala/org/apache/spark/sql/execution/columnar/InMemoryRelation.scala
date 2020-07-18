@@ -86,7 +86,7 @@ case class CachedRDDBuilder(
 
   private def buildBuffers(): RDD[CachedBatch] = {
     val output = cachedPlan.output
-    val cached = cachedPlan.execute().mapPartitionsInternal { rowIterator =>
+    val cached = cachedPlan.execute().mapPartitionsWithIndexInternal({ (_, rowIterator) =>
       new Iterator[CachedBatch] {
         def next(): CachedBatch = {
           val columnBuilders = output.map { attribute =>
@@ -130,7 +130,7 @@ case class CachedRDDBuilder(
 
         def hasNext: Boolean = rowIterator.hasNext
       }
-    }.persist(storageLevel)
+    }, isOrderSensitive = true).persist(storageLevel)
 
     cached.setName(
       tableName.map(n => s"In-memory table $n")
