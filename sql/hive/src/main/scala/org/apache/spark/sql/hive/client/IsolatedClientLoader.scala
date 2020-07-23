@@ -128,6 +128,22 @@ private[hive] object IsolatedClientLoader extends Logging {
   // It is only used by forVersion.
   private val resolvedVersions =
     new scala.collection.mutable.HashMap[(HiveVersion, String), Seq[URL]]
+
+  private val isolatedClientLoaders =
+    new scala.collection.mutable.HashMap[String, IsolatedClientLoader]
+
+  def getIsolatedClientLoadersMap():
+  scala.collection.mutable.HashMap[String, IsolatedClientLoader] = {
+    isolatedClientLoaders
+  }
+
+  def isolatedClientLoaderCacheEnabled(): Boolean = {
+    !"false".equalsIgnoreCase(System.getProperty("ISOLATEDCLIENTLOADER_CACHE_ENABLED"))
+  }
+
+  def isolatedClientLoaderCached(key: String): Boolean = {
+    isolatedClientLoaderCacheEnabled && isolatedClientLoaders.contains(key)
+  }
 }
 
 /**
