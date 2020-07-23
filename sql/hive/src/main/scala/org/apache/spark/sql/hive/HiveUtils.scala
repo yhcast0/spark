@@ -24,8 +24,8 @@ import java.sql.Timestamp
 import java.util.Locale
 import java.util.concurrent.TimeUnit
 
-import scala.collection.mutable.HashMap
 import scala.collection.JavaConverters._
+import scala.collection.mutable.HashMap
 import scala.language.implicitConversions
 
 import org.apache.hadoop.conf.Configuration
@@ -242,15 +242,25 @@ private[spark] object HiveUtils extends Logging {
       conf: SparkConf,
       hadoopConf: Configuration): HiveClientImpl = {
     logInfo(s"Initializing execution hive, version $hiveExecutionVersion")
-    val loader = new IsolatedClientLoader(
-      version = IsolatedClientLoader.hiveVersion(hiveExecutionVersion),
-      sparkConf = conf,
-      execJars = Seq(),
-      hadoopConf = hadoopConf,
-      config = newTemporaryConfiguration(useInMemoryDerby = true),
-      isolationOn = false,
-      baseClassLoader = Utils.getContextOrSparkClassLoader)
-    loader.createClient().asInstanceOf[HiveClientImpl]
+    val loaderMap = IsolatedClientLoader.getIsolatedClientLoadersMap
+    val key = "forClient_" + IsolatedClientLoader.hiveVersion(hiveExecutionVersion)
+    if (IsolatedClientLoader.isolatedClientLoaderCached(key)) {
+      logInfo(s"Reuse IsolatedClientLoader in map by key: $key")
+      loaderMap(key).createClient().asInstanceOf[HiveClientImpl]
+    } else {
+      val loader = new IsolatedClientLoader(
+        version = IsolatedClientLoader.hiveVersion(hiveExecutionVersion),
+        sparkConf = conf,
+        execJars = Seq(),
+        hadoopConf = hadoopConf,
+        config = newTemporaryConfiguration(useInMemoryDerby = true),
+        isolationOn = false,
+        baseClassLoader = Utils.getContextOrSparkClassLoader)
+      if (IsolatedClientLoader.isolatedClientLoaderCacheEnabled) {
+        loaderMap.put(key, loader)
+      }
+      loader.createClient().asInstanceOf[HiveClientImpl]
+    }
   }
 
   /**
@@ -277,7 +287,7 @@ private[spark] object HiveUtils extends Logging {
     val hiveMetastoreSharedPrefixes = HiveUtils.hiveMetastoreSharedPrefixes(sqlConf)
     val hiveMetastoreBarrierPrefixes = HiveUtils.hiveMetastoreBarrierPrefixes(sqlConf)
     val metaVersion = IsolatedClientLoader.hiveVersion(hiveMetastoreVersion)
-
+    val loaderMap = IsolatedClientLoader.getIsolatedClientLoadersMap
     val isolatedLoader = if (hiveMetastoreJars == "builtin") {
       if (hiveExecutionVersion != hiveMetastoreVersion) {
         throw new IllegalArgumentException(
@@ -306,27 +316,47 @@ private[spark] object HiveUtils extends Logging {
 
       logInfo(
         s"Initializing HiveMetastoreConnection version $hiveMetastoreVersion using Spark classes.")
-      new IsolatedClientLoader(
-        version = metaVersion,
-        sparkConf = conf,
-        hadoopConf = hadoopConf,
-        execJars = jars.toSeq,
-        config = configurations,
-        isolationOn = true,
-        barrierPrefixes = hiveMetastoreBarrierPrefixes,
-        sharedPrefixes = hiveMetastoreSharedPrefixes)
+      val key = "builtin_" + metaVersion
+      if (IsolatedClientLoader.isolatedClientLoaderCached(key)) {
+        logInfo(s"Reuse IsolatedClientLoader in map by key: $key")
+        loaderMap(key)
+      } else {
+        val loader = new IsolatedClientLoader(
+          version = metaVersion,
+          sparkConf = conf,
+          hadoopConf = hadoopConf,
+          execJars = jars.toSeq,
+          config = configurations,
+          isolationOn = true,
+          barrierPrefixes = hiveMetastoreBarrierPrefixes,
+          sharedPrefixes = hiveMetastoreSharedPrefixes)
+        if (IsolatedClientLoader.isolatedClientLoaderCacheEnabled) {
+          loaderMap.put(key, loader)
+        }
+        loader
+      }
     } else if (hiveMetastoreJars == "maven") {
       // TODO: Support for loading the jars from an already downloaded location.
       logInfo(
         s"Initializing HiveMetastoreConnection version $hiveMetastoreVersion using maven.")
-      IsolatedClientLoader.forVersion(
-        hiveMetastoreVersion = hiveMetastoreVersion,
-        hadoopVersion = VersionInfo.getVersion,
-        sparkConf = conf,
-        hadoopConf = hadoopConf,
-        config = configurations,
-        barrierPrefixes = hiveMetastoreBarrierPrefixes,
-        sharedPrefixes = hiveMetastoreSharedPrefixes)
+      val key = "maven_" + hiveMetastoreVersion
+      if (IsolatedClientLoader.isolatedClientLoaderCached(key)) {
+        logInfo(s"Reuse IsolatedClientLoader in map by key: $key")
+        loaderMap(key)
+      } else {
+        val loader = IsolatedClientLoader.forVersion(
+          hiveMetastoreVersion = hiveMetastoreVersion,
+          hadoopVersion = VersionInfo.getVersion,
+          sparkConf = conf,
+          hadoopConf = hadoopConf,
+          config = configurations,
+          barrierPrefixes = hiveMetastoreBarrierPrefixes,
+          sharedPrefixes = hiveMetastoreSharedPrefixes)
+        if (IsolatedClientLoader.isolatedClientLoaderCacheEnabled) {
+          loaderMap.put(key, loader)
+        }
+        loader
+      }
     } else {
       // Convert to files and expand any directories.
       val jars =
@@ -349,15 +379,25 @@ private[spark] object HiveUtils extends Logging {
       logInfo(
         s"Initializing HiveMetastoreConnection version $hiveMetastoreVersion " +
           s"using ${jars.mkString(":")}")
-      new IsolatedClientLoader(
-        version = metaVersion,
-        sparkConf = conf,
-        hadoopConf = hadoopConf,
-        execJars = jars.toSeq,
-        config = configurations,
-        isolationOn = true,
-        barrierPrefixes = hiveMetastoreBarrierPrefixes,
-        sharedPrefixes = hiveMetastoreSharedPrefixes)
+      val key = "other_" + metaVersion
+      if (IsolatedClientLoader.isolatedClientLoaderCached(key)) {
+        logInfo(s"Reuse IsolatedClientLoader in map by key: $key")
+        loaderMap(key)
+      } else {
+        val loader = new IsolatedClientLoader(
+          version = metaVersion,
+          sparkConf = conf,
+          hadoopConf = hadoopConf,
+          execJars = jars.toSeq,
+          config = configurations,
+          isolationOn = true,
+          barrierPrefixes = hiveMetastoreBarrierPrefixes,
+          sharedPrefixes = hiveMetastoreSharedPrefixes)
+        if (IsolatedClientLoader.isolatedClientLoaderCacheEnabled) {
+          loaderMap.put(key, loader)
+        }
+        loader
+      }
     }
     isolatedLoader.createClient()
   }
