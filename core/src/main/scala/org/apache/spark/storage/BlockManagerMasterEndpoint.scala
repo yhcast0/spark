@@ -17,10 +17,11 @@
 
 package org.apache.spark.storage
 
+import java.io.IOException
 import java.util.{HashMap => JHashMap}
 
-import scala.collection.mutable
 import scala.collection.JavaConverters._
+import scala.collection.mutable
 import scala.concurrent.{ExecutionContext, Future}
 import scala.util.Random
 
@@ -197,11 +198,17 @@ class BlockManagerMasterEndpoint(
     // Ask the slaves to remove the RDD, and put the result in a sequence of Futures.
     // The dispatcher is used as an implicit argument into the Future sequence construction.
     val removeMsg = RemoveRdd(rddId)
-    Future.sequence(
-      blockManagerInfo.values.map { bm =>
-        bm.slaveEndpoint.ask[Int](removeMsg)
-      }.toSeq
-    )
+
+    val futures = blockManagerInfo.values.map { bm =>
+      bm.slaveEndpoint.ask[Int](removeMsg).recover {
+        case e: IOException =>
+          logWarning(s"Error trying to remove RDD $rddId from block manager ${bm.blockManagerId}",
+            e)
+          0 // zero blocks were removed
+      }
+    }.toSeq
+
+    Future.sequence(futures)
   }
 
   private def removeShuffle(shuffleId: Int): Future[Seq[Boolean]] = {
@@ -224,11 +231,21 @@ class BlockManagerMasterEndpoint(
     val requiredBlockManagers = blockManagerInfo.values.filter { info =>
       removeFromDriver || !info.blockManagerId.isDriver
     }
-    Future.sequence(
-      requiredBlockManagers.map { bm =>
-        bm.slaveEndpoint.ask[Int](removeMsg)
-      }.toSeq
-    )
+    val futures = requiredBlockManagers.map { bm =>
+      bm.slaveEndpoint.ask[Int](removeMsg).recover {
+        case e: IOException =>
+          logWarning(s"Error trying to remove broadcast $broadcastId from block manager " +
+            s"${bm.blockManagerId}", e)
+          0 // zero blocks were removed
+      }
+    }.toSeq
+   val blocksToRemove = blockLocations.keySet().asScala
+     .collect {
+       case broadcastId@BroadcastBlockId(`broadcastId`, _) =>
+         broadcastId
+     }
+    blocksToRemove.foreach(blockLocations.remove)
+    Future.sequence(futures)
   }
 
   private def removeBlockManager(blockManagerId: BlockManagerId) {
