@@ -79,7 +79,17 @@ abstract class Expression extends TreeNode[Expression] {
    * An example would be `SparkPartitionID` that relies on the partition id returned by TaskContext.
    * By default leaf expressions are deterministic as Nil.forall(_.deterministic) returns true.
    */
-  def deterministic: Boolean = children.forall(_.deterministic)
+  def deterministic: Boolean = children.forall(expr => {
+    checkInterrupted
+    expr.deterministic
+  })
+
+  private def checkInterrupted(): Unit = {
+    if (Thread.currentThread.isInterrupted) throw new DeterministicInterruptedException()
+  }
+
+  class DeterministicInterruptedException()
+    extends RuntimeException()
 
   def nullable: Boolean
 

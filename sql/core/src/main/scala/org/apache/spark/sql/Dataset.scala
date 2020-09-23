@@ -2862,12 +2862,25 @@ class Dataset[T] private[sql](
     // This projection writes output to a `InternalRow`, which means applying this projection is not
     // thread-safe. Here we create the projection inside this method to make `Dataset` thread-safe.
     val objProj = GenerateSafeProjection.generate(deserializer :: Nil)
-    plan.executeCollect().map { row =>
-      // The row returned by SafeProjection is `SpecificInternalRow`, which ignore the data type
-      // parameter of its `get` method, so it's safe to use null here.
-      objProj(row).get(0, null).asInstanceOf[T]
+    var i = 0;
+    plan.executeCollect().map { row => {
+        if (i % 1000 == 0) {
+          checkInterrupted
+        }
+        i = i + 1
+        // The row returned by SafeProjection is `SpecificInternalRow`, which ignore the data type
+        // parameter of its `get` method, so it's safe to use null here.
+        objProj(row).get(0, null).asInstanceOf[T]
+      }
     }
   }
+
+  private def checkInterrupted(): Unit = {
+    if (Thread.currentThread.isInterrupted) throw new CollectElementInterruptedException()
+  }
+
+  class CollectElementInterruptedException()
+    extends RuntimeException()
 
   private def sortInternal(global: Boolean, sortExprs: Seq[Column]): Dataset[T] = {
     val sortOrder: Seq[SortOrder] = sortExprs.map { col =>
