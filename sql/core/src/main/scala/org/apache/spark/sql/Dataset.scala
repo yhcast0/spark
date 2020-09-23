@@ -2862,8 +2862,12 @@ class Dataset[T] private[sql](
     // This projection writes output to a `InternalRow`, which means applying this projection is not
     // thread-safe. Here we create the projection inside this method to make `Dataset` thread-safe.
     val objProj = GenerateSafeProjection.generate(deserializer :: Nil)
+    var i = 0;
     plan.executeCollect().map { row => {
-        checkInterrupted
+        if (i % 1000 == 0) {
+          checkInterrupted
+        }
+        i = i + 1
         // The row returned by SafeProjection is `SpecificInternalRow`, which ignore the data type
         // parameter of its `get` method, so it's safe to use null here.
         objProj(row).get(0, null).asInstanceOf[T]
