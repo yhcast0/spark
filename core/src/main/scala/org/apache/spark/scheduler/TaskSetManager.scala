@@ -525,7 +525,9 @@ private[spark] class TaskSetManager(
         case shuffleMapTask: ShuffleMapTask =>
            shuffleMapTask.taskBinary.id
       }
-      SparkEnv.get.broadcastManager.unbroadcast(broadcastId, true, false)
+      if (conf.getBoolean("spark.cleaner.unbroadcastWithoutDelay", true)) {
+        SparkEnv.get.broadcastManager.unbroadcast(broadcastId, true, false)
+      }
       if (tasksSuccessful == numTasks) {
         blacklistTracker.foreach(_.updateBlacklistForSuccessfulTaskSet(
           taskSet.stageId,

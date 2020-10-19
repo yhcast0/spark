@@ -141,8 +141,14 @@ class BlockManagerMaster(
 
   /** Remove all blocks belonging to the given broadcast. */
   def removeBroadcast(broadcastId: Long, removeFromMaster: Boolean, blocking: Boolean) {
-    val future = driverEndpoint.askSync[Future[Seq[Int]]](
-      RemoveBroadcast(broadcastId, removeFromMaster))
+    var future: Future[Seq[Int]] = null
+    if (blocking) {
+      future = driverEndpoint.askSync[Future[Seq[Int]]](
+        RemoveBroadcast(broadcastId, removeFromMaster))
+    } else {
+      future = driverEndpoint.ask[Seq[Int]](
+        RemoveBroadcast(broadcastId, removeFromMaster))
+    }
     future.onFailure {
       case e: Exception =>
         logWarning(s"Failed to remove broadcast $broadcastId" +
