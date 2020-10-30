@@ -111,6 +111,8 @@ private[spark] class TaskSetManager(
 
   override def runningTasks: Int = runningTasksSet.size
 
+  override def totalTasks: Int = taskSet.tasks.length
+
   def someAttemptSucceeded(tid: Long): Boolean = {
     successful(taskInfos(tid).index)
   }
