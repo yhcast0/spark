@@ -18,8 +18,8 @@
 package org.apache.spark.deploy.yarn.security
 
 import org.apache.hadoop.conf.Configuration
+import org.apache.hadoop.security.UserGroupInformation.AuthenticationMethod
 import org.apache.hadoop.security.{Credentials, UserGroupInformation}
-
 import org.apache.spark.SparkConf
 
 /**
@@ -39,7 +39,8 @@ trait ServiceCredentialProvider {
    * Hadoop security is enabled.
    */
   def credentialsRequired(hadoopConf: Configuration): Boolean = {
-    UserGroupInformation.isSecurityEnabled
+    UserGroupInformation.isSecurityEnabled &&
+      !UserGroupInformation.isAuthenticationEnabled(AuthenticationMethod.TBDS)
   }
 
   /**
