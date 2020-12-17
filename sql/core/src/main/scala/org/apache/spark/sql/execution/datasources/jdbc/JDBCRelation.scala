@@ -249,6 +249,7 @@ private[sql] case class JDBCRelation(
     jdbcOptions: JDBCOptions)(@transient val sparkSession: SparkSession)
   extends BaseRelation
   with PrunedFilteredScan
+  with PrunedFilteredAggregateScan
   with InsertableRelation {
 
   override def sqlContext: SQLContext = sparkSession.sqlContext
@@ -273,6 +274,21 @@ private[sql] case class JDBCRelation(
       filters,
       parts,
       jdbcOptions).asInstanceOf[RDD[Row]]
+  }
+
+  override def buildScan(
+      requiredColumns: Array[String],
+      filters: Array[Filter],
+      aggregation: Aggregation): RDD[Row] = {
+    // Rely on a type erasure hack to pass RDD[InternalRow] back as RDD[Row]
+    JDBCRDD.scanTable(
+      sparkSession.sparkContext,
+      schema,
+      requiredColumns,
+      filters,
+      parts,
+      jdbcOptions,
+      aggregation).asInstanceOf[RDD[Row]]
   }
 
   override def insert(data: DataFrame, overwrite: Boolean): Unit = {

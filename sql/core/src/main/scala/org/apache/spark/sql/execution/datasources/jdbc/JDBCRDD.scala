@@ -18,7 +18,9 @@
 package org.apache.spark.sql.execution.datasources.jdbc
 
 import java.sql.{Connection, PreparedStatement, ResultSet}
+import java.util.StringTokenizer
 
+import scala.collection.mutable.ArrayBuilder
 import scala.util.control.NonFatal
 
 import org.apache.spark.{InterruptibleIterator, Partition, SparkContext, TaskContext}
@@ -133,6 +135,57 @@ object JDBCRDD extends Logging {
     })
   }
 
+  def compileAggregates(
+                         aggregates: Seq[AggregateFunc],
+                         dialect: JdbcDialect): (Array[String]) = {
+    def quote(colName: String): String = dialect.quoteIdentifier(colName)
+    val aggBuilder = ArrayBuilder.make[String]
+    aggregates.map {
+      case Min(column) =>
+        if (!column.contains("+") && !column.contains("-") && !column.contains("*")
+          && !column.contains("/")) {
+          aggBuilder += s"MIN(${quote(column)})"
+        } else {
+          aggBuilder += s"MIN(${quoteEachCols(column, dialect)})"
+        }
+      case Max(column) =>
+        if (!column.contains("+") && !column.contains("-") && !column.contains("*")
+          && !column.contains("/")) {
+          aggBuilder += s"MAX(${quote(column)})"
+        } else {
+          aggBuilder += s"MAX(${quoteEachCols(column, dialect)})"
+        }
+      case Sum(column) =>
+        if (!column.contains("+") && !column.contains("-") && !column.contains("*")
+          && !column.contains("/")) {
+          aggBuilder += s"SUM(${quote(column)})"
+        } else {
+          aggBuilder += s"SUM(${quoteEachCols(column, dialect)})"
+        }
+      case Avg(column) =>
+        if (!column.contains("+") && !column.contains("-") && !column.contains("*")
+          && !column.contains("/")) {
+          aggBuilder += s"AVG(${quote(column)})"
+        } else {
+          aggBuilder += s"AVG(${quoteEachCols(column, dialect)})"
+        }
+      case _ =>
+    }
+    aggBuilder.result
+  }
+
+  private def quoteEachCols (column: String, dialect: JdbcDialect): String = {
+    def quote(colName: String): String = dialect.quoteIdentifier(colName)
+    val colsBuilder = ArrayBuilder.make[String]
+    val st = new StringTokenizer(column, "+-*/", true)
+    colsBuilder += quote(st.nextToken().trim)
+    while (st.hasMoreTokens) {
+      colsBuilder += st.nextToken
+      colsBuilder +=  quote(st.nextToken().trim)
+    }
+    colsBuilder.result.mkString(" ")
+  }
+
   /**
    * Build and return JDBCRDD from the given information.
    *
@@ -152,7 +205,9 @@ object JDBCRDD extends Logging {
       requiredColumns: Array[String],
       filters: Array[Filter],
       parts: Array[Partition],
-      options: JDBCOptions): RDD[InternalRow] = {
+      options: JDBCOptions,
+      aggregation: Aggregation = Aggregation(Seq.empty[AggregateFunc], Seq.empty[String]))
+    : RDD[InternalRow] = {
     val url = options.url
     val dialect = JdbcDialects.get(url)
     val quotedColumns = requiredColumns.map(colName => dialect.quoteIdentifier(colName))
@@ -164,7 +219,8 @@ object JDBCRDD extends Logging {
       filters,
       parts,
       url,
-      options)
+      options,
+      aggregation)
   }
 }
 
@@ -181,7 +237,8 @@ private[jdbc] class JDBCRDD(
     filters: Array[Filter],
     partitions: Array[Partition],
     url: String,
-    options: JDBCOptions)
+    options: JDBCOptions,
+    aggregation: Aggregation = Aggregation(Seq.empty[AggregateFunc], Seq.empty[String]))
   extends RDD[InternalRow](sc, Nil) {
 
   /**
@@ -189,13 +246,124 @@ private[jdbc] class JDBCRDD(
    */
   override def getPartitions: Array[Partition] = partitions
 
+  private var updatedSchema: StructType = new StructType()
+
   /**
    * `columns`, but as a String suitable for injection into a SQL query.
    */
   private val columnList: String = {
+    val compiledAgg = JDBCRDD.compileAggregates(aggregation.aggregateExpressions,
+      JdbcDialects.get(url))
     val sb = new StringBuilder()
-    columns.foreach(x => sb.append(",").append(x))
-    if (sb.isEmpty) "1" else sb.substring(1)
+    if (compiledAgg.length == 0) {
+      updatedSchema = schema
+      columns.foreach(x => sb.append(",").append(x))
+    } else {
+      getAggregateColumnsList(sb, compiledAgg)
+    }
+    if (sb.length == 0) "1" else sb.substring(1)
+  }
+
+  private def getAggregateColumnsList(sb: StringBuilder, compiledAgg: Array[String]) = {
+    val colDataTypeMap: Map[String, StructField] = columns.zip(schema.fields).toMap
+    val newColsBuilder = ArrayBuilder.make[String]
+    for (col <- compiledAgg) {
+      newColsBuilder += col
+
+    }
+    for (groupBy <- aggregation.groupByExpressions) {
+      newColsBuilder += JdbcDialects.get(url).quoteIdentifier(groupBy)
+    }
+    val newColumns = newColsBuilder.result
+    sb.append(", ").append(newColumns.mkString(", "))
+
+    // build new schemas
+    for (c <- newColumns) {
+      val colName: Array[String] = if (!c.contains("+") && !c.contains("-") && !c.contains("*")
+        && !c.contains("/")) {
+        if (c.contains("MAX") || c.contains("MIN") || c.contains("SUM") || c.contains("AVG")) {
+          Array(c.substring(c.indexOf("(") + 1, c.indexOf(")")))
+        } else {
+          Array(c)
+        }
+      } else {
+        val colsBuilder = ArrayBuilder.make[String]
+        val st = new StringTokenizer(c.substring(c.indexOf("(") + 1, c.indexOf(")")), "+-*/", false)
+        while (st.hasMoreTokens) {
+          colsBuilder += st.nextToken.trim
+        }
+        colsBuilder.result
+      }
+
+      if (c.contains("MAX") || c.contains("MIN")) {
+        updatedSchema = updatedSchema
+          .add(getDataType(colName, colDataTypeMap))
+      } else if (c.contains("SUM")) {
+        // Same as Spark, promote to the largest types to prevent overflows.
+        // IntegralType: if not Long, promote to Long
+        // FractionalType: if not Double, promote to Double
+        // DecimalType.Fixed(precision, scale):
+        //   follow what is done in Sum.resultType, +10 to precision
+        val dataField = getDataType(colName, colDataTypeMap)
+        dataField.dataType match {
+          case DecimalType.Fixed(precision, scale) =>
+            updatedSchema = updatedSchema.add(
+              dataField.name, DecimalType.bounded(precision + 10, scale), dataField.nullable)
+          case _: IntegralType =>
+            updatedSchema = updatedSchema.add(dataField.name, LongType, dataField.nullable)
+          case _ =>
+            updatedSchema = updatedSchema.add(dataField.name, DoubleType, dataField.nullable)
+        }
+      } else if (c.contains("AVG")) { // AVG
+        // Same as Spark, promote to the largest types to prevent overflows.
+        // DecimalType.Fixed(precision, scale):
+        //   follow what is done in Average.resultType, +4 to precision and scale
+        // promote to Double for other data types
+        val dataField = getDataType(colName, colDataTypeMap)
+        dataField.dataType match {
+          case DecimalType.Fixed(p, s) => updatedSchema =
+            updatedSchema.add(
+              dataField.name, DecimalType.bounded(p + 4, s + 4), dataField.nullable)
+          case _ => updatedSchema =
+            updatedSchema.add(dataField.name, DoubleType, dataField.nullable)
+        }
+      } else {
+        updatedSchema = updatedSchema.add(colDataTypeMap.get(c).get)
+      }
+    }
+  }
+
+  private def getDataType(
+      cols: Array[String],
+      colDataTypeMap: Map[String, StructField]): StructField = {
+    if (cols.length == 1) {
+      colDataTypeMap.get(cols(0)).get
+    } else {
+      val map = new java.util.HashMap[Object, Integer]
+      map.put(ByteType, 0)
+      map.put(ShortType, 1)
+      map.put(IntegerType, 2)
+      map.put(LongType, 3)
+      map.put(FloatType, 4)
+      map.put(DecimalType, 5)
+      map.put(DoubleType, 6)
+      var colType = colDataTypeMap.get(cols(0)).get
+      for (i <- 1 until cols.length) {
+        val dType = colDataTypeMap.get(cols(i)).get
+        if (dType.dataType.isInstanceOf[DecimalType]
+          && colType.dataType.isInstanceOf[DecimalType]) {
+          if (dType.dataType.asInstanceOf[DecimalType].precision
+            > colType.dataType.asInstanceOf[DecimalType].precision) {
+            colType = dType
+          }
+        } else {
+          if (map.get(colType.dataType) < map.get(dType.dataType)) {
+            colType = dType
+          }
+        }
+      }
+      colType
+    }
   }
 
   /**
@@ -216,6 +384,18 @@ private[jdbc] class JDBCRDD(
       "WHERE " + part.whereClause
     } else if (filterWhereClause.length > 0) {
       "WHERE " + filterWhereClause
+    } else {
+      ""
+    }
+  }
+
+  /**
+   * A GROUP BY clause representing pushed-down grouping columns.
+   */
+  private def getGroupByClause: String = {
+    if (aggregation.groupByExpressions.length > 0) {
+      val quotedColumns = aggregation.groupByExpressions.map(JdbcDialects.get(url).quoteIdentifier)
+      s"GROUP BY ${quotedColumns.mkString(", ")}"
     } else {
       ""
     }
@@ -296,13 +476,15 @@ private[jdbc] class JDBCRDD(
 
     val myWhereClause = getWhereClause(part)
 
-    val sqlText = s"SELECT $columnList FROM ${options.tableOrQuery} $myWhereClause"
+    val sqlText = s"SELECT $columnList FROM ${options.tableOrQuery} $myWhereClause" +
+      s" $getGroupByClause"
     stmt = conn.prepareStatement(sqlText,
         ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY)
     stmt.setFetchSize(options.fetchSize)
     stmt.setQueryTimeout(options.queryTimeout)
     rs = stmt.executeQuery()
-    val rowsIterator = JdbcUtils.resultSetToSparkInternalRows(rs, schema, inputMetrics)
+
+    val rowsIterator = JdbcUtils.resultSetToSparkInternalRows(rs, updatedSchema, inputMetrics)
 
     CompletionIterator[InternalRow, Iterator[InternalRow]](
       new InterruptibleIterator(context, rowsIterator), close())

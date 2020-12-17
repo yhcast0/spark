@@ -274,6 +274,17 @@ trait PrunedFilteredScan {
 }
 
 /**
+ * TODO: add doc
+ * @since 3.1.0
+ */
+trait PrunedFilteredAggregateScan {
+  def buildScan(
+      requiredColumns: Array[String],
+      filters: Array[Filter],
+      aggregation: Aggregation): RDD[Row]
+}
+
+/**
  * A BaseRelation that can be used to insert data into it through the insert method.
  * If overwrite in insert method is true, the old data in the relation should be overwritten with
  * the new data. If overwrite in insert method is false, the new data should be appended.

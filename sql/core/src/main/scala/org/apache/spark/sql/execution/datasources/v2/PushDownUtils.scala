@@ -20,11 +20,13 @@ package org.apache.spark.sql.execution.datasources.v2
 import scala.collection.mutable
 
 import org.apache.spark.sql.catalyst.expressions.{AttributeReference, AttributeSet, Expression, NamedExpression, PredicateHelper, SchemaPruning}
+import org.apache.spark.sql.catalyst.expressions.aggregate.AggregateExpression
 import org.apache.spark.sql.catalyst.util.CharVarcharUtils
-import org.apache.spark.sql.connector.read.{Scan, ScanBuilder, SupportsPushDownFilters, SupportsPushDownRequiredColumns}
+import org.apache.spark.sql.connector.read.{Scan, ScanBuilder, SupportsPushDownAggregates, SupportsPushDownFilters, SupportsPushDownRequiredColumns}
 import org.apache.spark.sql.execution.datasources.DataSourceStrategy
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.sources
+import org.apache.spark.sql.sources.{AggregateFunc, Aggregation}
 import org.apache.spark.sql.types.StructType
 
 object PushDownUtils extends PredicateHelper {
@@ -69,6 +71,48 @@ object PushDownUtils extends PredicateHelper {
       case _ => (Nil, filters)
     }
   }
+
+    /**
+     * Pushes down aggregates to the data source reader
+     *
+     * @return pushed aggregation.
+     */
+    def pushAggregates(
+        scanBuilder: ScanBuilder,
+        aggregates: Seq[AggregateExpression],
+        groupby: Seq[Expression]): Aggregation = {
+      scanBuilder match {
+        case r: SupportsPushDownAggregates =>
+          val translatedAggregates = mutable.ArrayBuffer.empty[sources.AggregateFunc]
+          // Catalyst aggregate expression that can't be translated to data source aggregates.
+          val untranslatableExprs = mutable.ArrayBuffer.empty[AggregateExpression]
+
+          for (aggregateExpr <- aggregates) {
+            val translated = DataSourceStrategy.translateAggregate(aggregateExpr)
+            if (translated.isEmpty) {
+              untranslatableExprs += aggregateExpr
+            } else {
+              translatedAggregates += translated.get
+            }
+          }
+
+          def columnAsString(e: Expression): String = e match {
+            case AttributeReference(name, _, _, _) => name
+            case _ => ""
+          }
+
+          if (untranslatableExprs.isEmpty) {
+            val groupByCols = groupby.map(columnAsString(_))
+            if (!groupByCols.exists(_.isEmpty)) {
+              r.pushAggregation(Aggregation(translatedAggregates, groupByCols))
+            }
+          }
+
+          r.pushedAggregation
+
+        case _ => Aggregation(Seq.empty[AggregateFunc], Seq.empty[String])
+      }
+    }
 
   /**
    * Applies column pruning to the data source, w.r.t. the references of the given expressions.
