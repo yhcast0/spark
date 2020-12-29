@@ -141,6 +141,9 @@ class JDBCV2Suite extends QueryTest with SharedSparkSession {
     val df3 = df2.groupBy().sum("c")
     // df3.explain(true)
     checkAnswer(df3, Seq(Row(41000.00)))
+
+    val df4 = df2.groupBy($"a").sum("c")
+    checkAnswer(df4, Seq(Row(1, 19000.00), Row(2, 22000.00)))
   }
 
   test("scan with aggregate push-down") {

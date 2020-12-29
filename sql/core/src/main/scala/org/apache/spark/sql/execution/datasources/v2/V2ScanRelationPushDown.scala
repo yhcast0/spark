@@ -47,8 +47,14 @@ object V2ScanRelationPushDown extends Rule[LogicalPlan] with AliasHelper {
             }
           }.distinct
 
-          val aggregation = PushDownUtils.pushAggregates(scanBuilder, aggregates,
-            groupingExpressions)
+          val groupBy = groupingExpressions.flatMap{ expr =>
+            expr.collect {
+              case a: AttributeReference =>
+                replaceAlias(a, aliasMap)
+            }
+          }.distinct
+
+          val aggregation = PushDownUtils.pushAggregates(scanBuilder, aggregates, groupBy)
 
           val (pushedFilters, postScanFilters, scan, output, normalizedProjects) =
             processFilerAndColumn(scanBuilder, project, filters, relation)
