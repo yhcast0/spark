@@ -135,40 +135,47 @@ object JDBCRDD extends Logging {
     })
   }
 
+  def containFourArithmetic(column: String): Boolean = {
+    (column.contains("+") || column.contains("-") || column.contains("*")
+      || column.contains("/"))
+  }
+
   def compileAggregates(
                          aggregates: Seq[AggregateFunc],
                          dialect: JdbcDialect): (Array[String]) = {
-    def quote(colName: String): String = dialect.quoteIdentifier(colName)
+    def quote(colName: String): String = colName match {
+      case "1" =>
+        "1"
+      case _ => dialect.quoteIdentifier(colName)
+    }
     val aggBuilder = ArrayBuilder.make[String]
     aggregates.map {
       case Min(column) =>
-        if (!column.contains("+") && !column.contains("-") && !column.contains("*")
-          && !column.contains("/")) {
+        if (! containFourArithmetic(column)) {
           aggBuilder += s"MIN(${quote(column)})"
         } else {
           aggBuilder += s"MIN(${quoteEachCols(column, dialect)})"
         }
       case Max(column) =>
-        if (!column.contains("+") && !column.contains("-") && !column.contains("*")
-          && !column.contains("/")) {
+        if (! containFourArithmetic(column)) {
           aggBuilder += s"MAX(${quote(column)})"
         } else {
           aggBuilder += s"MAX(${quoteEachCols(column, dialect)})"
         }
       case Sum(column) =>
-        if (!column.contains("+") && !column.contains("-") && !column.contains("*")
-          && !column.contains("/")) {
+        if (! containFourArithmetic(column)) {
           aggBuilder += s"SUM(${quote(column)})"
         } else {
           aggBuilder += s"SUM(${quoteEachCols(column, dialect)})"
         }
       case Avg(column) =>
-        if (!column.contains("+") && !column.contains("-") && !column.contains("*")
-          && !column.contains("/")) {
+        if (! containFourArithmetic(column)) {
           aggBuilder += s"AVG(${quote(column)})"
         } else {
           aggBuilder += s"AVG(${quoteEachCols(column, dialect)})"
         }
+      case Count(column) if !containFourArithmetic(column) =>
+        aggBuilder += s"COUNT(${quote(column)})"
       case _ =>
     }
     aggBuilder.result
@@ -264,7 +271,7 @@ private[jdbc] class JDBCRDD(
     if (sb.length == 0) "1" else sb.substring(1)
   }
 
-  private def getAggregateColumnsList(sb: StringBuilder, compiledAgg: Array[String]) = {
+  private def getAggregateColumnsList(sb: StringBuilder, compiledAgg: Array[String]): Unit = {
     val colDataTypeMap: Map[String, StructField] = columns.zip(schema.fields).toMap
     val newColsBuilder = ArrayBuilder.make[String]
     for (col <- compiledAgg) {
@@ -279,9 +286,12 @@ private[jdbc] class JDBCRDD(
 
     // build new schemas
     for (c <- newColumns) {
-      val colName: Array[String] = if (!c.contains("+") && !c.contains("-") && !c.contains("*")
-        && !c.contains("/")) {
-        if (c.contains("MAX") || c.contains("MIN") || c.contains("SUM") || c.contains("AVG")) {
+      val colName: Array[String] = if (!JDBCRDD.containFourArithmetic(c)) {
+        if (c.contains("MAX")
+          || c.contains("MIN")
+          || c.contains("SUM")
+          || c.contains("AVG")
+          || c.contains("COUNT")) {
           Array(c.substring(c.indexOf("(") + 1, c.indexOf(")")))
         } else {
           Array(c)
@@ -298,6 +308,13 @@ private[jdbc] class JDBCRDD(
       if (c.contains("MAX") || c.contains("MIN")) {
         updatedSchema = updatedSchema
           .add(getDataType(colName, colDataTypeMap))
+      } else if (c.contains("COUNT")) {
+        if (colName.length ==1 && colName(0).equals("1")) {
+          updatedSchema = updatedSchema.add("1", LongType, nullable = false)
+        } else {
+          val dataField = getDataType(colName, colDataTypeMap)
+          updatedSchema = updatedSchema.add(dataField.name, LongType, dataField.nullable)
+        }
       } else if (c.contains("SUM")) {
         // Same as Spark, promote to the largest types to prevent overflows.
         // IntegralType: if not Long, promote to Long
@@ -328,7 +345,7 @@ private[jdbc] class JDBCRDD(
             updatedSchema.add(dataField.name, DoubleType, dataField.nullable)
         }
       } else {
-        updatedSchema = updatedSchema.add(colDataTypeMap.get(c).get)
+        updatedSchema = updatedSchema.add(colDataTypeMap(c))
       }
     }
   }
@@ -337,7 +354,7 @@ private[jdbc] class JDBCRDD(
       cols: Array[String],
       colDataTypeMap: Map[String, StructField]): StructField = {
     if (cols.length == 1) {
-      colDataTypeMap.get(cols(0)).get
+      colDataTypeMap(cols(0))
     } else {
       val map = new java.util.HashMap[Object, Integer]
       map.put(ByteType, 0)
@@ -347,9 +364,9 @@ private[jdbc] class JDBCRDD(
       map.put(FloatType, 4)
       map.put(DecimalType, 5)
       map.put(DoubleType, 6)
-      var colType = colDataTypeMap.get(cols(0)).get
+      var colType = colDataTypeMap(cols(0))
       for (i <- 1 until cols.length) {
-        val dType = colDataTypeMap.get(cols(i)).get
+        val dType = colDataTypeMap(cols(i))
         if (dType.dataType.isInstanceOf[DecimalType]
           && colType.dataType.isInstanceOf[DecimalType]) {
           if (dType.dataType.asInstanceOf[DecimalType].precision

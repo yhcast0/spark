@@ -23,7 +23,7 @@ case class Aggregation(aggregateExpressions: Seq[AggregateFunc],
 abstract class AggregateFunc
 
 // Todo: add Count
-
+case class Count(column: String) extends AggregateFunc
 case class Avg(column: String) extends AggregateFunc
 case class Min(column: String) extends AggregateFunc
 case class Max(column: String) extends AggregateFunc

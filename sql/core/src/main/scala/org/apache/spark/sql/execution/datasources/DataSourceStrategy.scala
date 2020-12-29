@@ -731,16 +731,23 @@ object DataSourceStrategy
     aggregates.aggregateFunction match {
       case aggregate.Min(child) =>
         val columnName = columnAsString(child)
-        if (!columnName.isEmpty) Some(Min(columnName)) else None
+        if (columnName.nonEmpty) Some(Min(columnName)) else None
       case aggregate.Max(child) =>
         val columnName = columnAsString(child)
-        if (!columnName.isEmpty) Some(Max(columnName)) else None
+        if (columnName.nonEmpty) Some(Max(columnName)) else None
       case aggregate.Average(child) =>
         val columnName = columnAsString(child)
-        if (!columnName.isEmpty) Some(Avg(columnName)) else None
+        if (columnName.nonEmpty) Some(Avg(columnName)) else None
       case aggregate.Sum(child) =>
         val columnName = columnAsString(child)
-        if (!columnName.isEmpty) Some(Sum(columnName)) else None
+        if (columnName.nonEmpty) Some(Sum(columnName)) else None
+      case aggregate.Count(child) if !aggregates.isDistinct =>
+        val columnName = child.head match {
+          case Literal(_, _) =>
+            "1"
+          case _ => columnAsString(child.head)
+        }
+        if (columnName.nonEmpty) Some(Count(columnName)) else None
       case _ => None
     }
   }

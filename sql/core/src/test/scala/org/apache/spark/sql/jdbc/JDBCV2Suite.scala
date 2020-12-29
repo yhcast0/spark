@@ -119,6 +119,22 @@ class JDBCV2Suite extends QueryTest with SharedSparkSession {
     assert(scan.schema.names.sameElements(Seq("NAME")))
     checkAnswer(df, Row("mary"))
   }
+  test("count scan with aggregate push-down") {
+    val df1 = sql("select count(DEPT) FROM h2.test.employee")
+    checkAnswer(df1, Seq(Row(4)))
+    val df2 = sql("select DEPT, count(NAME) FROM h2.test.employee group by DEPT")
+    checkAnswer(df2, Seq(Row(1, 2), Row(2, 2)))
+    val df3 = sql("select count(*) FROM h2.test.employee")
+    checkAnswer(df3, Seq(Row(4)))
+  }
+
+  test("xxx") {
+    val df1 = sql("select sum(if(DEPT=1, 10, 20)) FROM h2.test.employee")
+    logError(df1.queryExecution.analyzed.toString)
+    logError(df1.queryExecution.optimizedPlan.toString)
+    logError(df1.queryExecution.executedPlan.toString)
+    df1.show()
+  }
 
   test("aggregate pushdown with alias") {
     val df1 = spark.table("h2.test.employee")

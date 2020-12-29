@@ -114,6 +114,9 @@ object V2ScanRelationPushDown extends Rule[LogicalPlan] with AliasHelper {
                     aggregate.Average(aggOutput(i - 1))
                   } else if (agg.aggregateFunction.isInstanceOf[aggregate.Sum]) {
                     aggregate.Sum(aggOutput(i - 1))
+                  } else if (agg.aggregateFunction.isInstanceOf[aggregate.Count]) {
+                    // count => sum
+                    aggregate.Sum(aggOutput(i - 1))
                   } else {
                     agg.aggregateFunction
                   }
