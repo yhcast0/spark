@@ -117,7 +117,7 @@ private[spark] class ContextCleaner(sc: SparkContext) extends Logging {
     *  The cleaning thread size.
     */
   private val cleanupTaskThreads = sc.conf.getInt(
-    "spark.cleaner.referenceTracking.cleanupThreadNumber", 100)
+    "spark.cleaner.referenceTracking.cleanupThreadNumber", 1)
 
   private val cleanupExecutorPool: ExecutorService =
     ThreadUtils.newDaemonFixedThreadPool(cleanupTaskThreads, "cleanup")
