@@ -232,7 +232,9 @@ private[spark] class Client(
     }
 
     def cleanupStagingDirInternal(): Unit = {
-      val stagingDirPath = new Path(appStagingBaseDir, getAppStagingDir(appId))
+      val currentUser = UserGroupInformation.getCurrentUser().getShortUserName()
+      val newAppStagingBaseDir = appStagingBaseDir + "/" + currentUser
+      val stagingDirPath = new Path(newAppStagingBaseDir, getAppStagingDir(appId))
       try {
         val fs = stagingDirPath.getFileSystem(hadoopConf)
         if (fs.delete(stagingDirPath, true)) {
@@ -913,7 +915,9 @@ private[spark] class Client(
     : ContainerLaunchContext = {
     logInfo("Setting up container launch context for our AM")
     val appId = newAppResponse.getApplicationId
-    val appStagingDirPath = new Path(appStagingBaseDir, getAppStagingDir(appId))
+    val currentUser = UserGroupInformation.getCurrentUser().getShortUserName()
+    val newAppStagingBaseDir = appStagingBaseDir + "/" + currentUser
+    val appStagingDirPath = new Path(newAppStagingBaseDir, getAppStagingDir(appId))
     val pySparkArchives =
       if (sparkConf.get(IS_PYTHON_APP)) {
         findPySparkArchives()
