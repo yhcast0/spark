@@ -20,6 +20,7 @@ package org.apache.spark.sql.catalyst.catalog
 import java.net.URI
 import java.util.Locale
 import java.util.concurrent.Callable
+import java.util.concurrent.locks.ReentrantReadWriteLock
 import javax.annotation.concurrent.GuardedBy
 
 import scala.collection.mutable
@@ -104,6 +105,8 @@ class SessionCatalog(
   protected var currentDb: String = formatDatabaseName(DEFAULT_DATABASE)
 
   private val validNameFormat = "([\\w_]+)".r
+
+  private val readWriteLock = new ReentrantReadWriteLock
 
   /**
    * Checks if the given name conforms the Hive standard ("[a-zA-Z_0-9]+"),
@@ -248,7 +251,7 @@ class SessionCatalog(
     externalCatalog.listDatabases(pattern)
   }
 
-  def getCurrentDatabase: String = synchronized { currentDb }
+  def getCurrentDatabase: String = lockRead { currentDb }
 
   def setCurrentDatabase(db: String): Unit = {
     val dbName = formatDatabaseName(db)
@@ -260,7 +263,7 @@ class SessionCatalog(
           s"${globalTempViewManager.database}.viewName.")
     }
     requireDbExists(dbName)
-    synchronized { currentDb = dbName }
+    lockWrite { currentDb = dbName }
   }
 
   /**
@@ -411,7 +414,7 @@ class SessionCatalog(
    * Return whether a table/view with the specified name exists. If no database is specified, check
    * with current database.
    */
-  def tableExists(name: TableIdentifier): Boolean = synchronized {
+  def tableExists(name: TableIdentifier): Boolean = lockRead {
     val db = formatDatabaseName(name.database.getOrElse(currentDb))
     val table = formatTableName(name.table)
     externalCatalog.tableExists(db, table)
@@ -486,7 +489,7 @@ class SessionCatalog(
   def createTempView(
       name: String,
       tableDefinition: LogicalPlan,
-      overrideIfExists: Boolean): Unit = synchronized {
+      overrideIfExists: Boolean): Unit = lockWrite {
     val table = formatTableName(name)
     if (tempViews.contains(table) && !overrideIfExists) {
       throw new TempTableAlreadyExistsException(name)
@@ -510,7 +513,7 @@ class SessionCatalog(
    */
   def alterTempViewDefinition(
       name: TableIdentifier,
-      viewDefinition: LogicalPlan): Boolean = synchronized {
+      viewDefinition: LogicalPlan): Boolean = lockWrite {
     val viewName = formatTableName(name.table)
     if (name.database.isEmpty) {
       if (tempViews.contains(viewName)) {
@@ -529,7 +532,7 @@ class SessionCatalog(
   /**
    * Return a local temporary view exactly as it was stored.
    */
-  def getTempView(name: String): Option[LogicalPlan] = synchronized {
+  def getTempView(name: String): Option[LogicalPlan] = lockRead {
     tempViews.get(formatTableName(name))
   }
 
@@ -545,7 +548,7 @@ class SessionCatalog(
    *
    * Returns true if this view is dropped successfully, false otherwise.
    */
-  def dropTempView(name: String): Boolean = synchronized {
+  def dropTempView(name: String): Boolean = lockWrite {
     tempViews.remove(formatTableName(name)).isDefined
   }
 
@@ -571,7 +574,7 @@ class SessionCatalog(
    * with the same name, then, if that does not exist, return the metadata of table/view in the
    * current database.
    */
-  def getTempViewOrPermanentTableMetadata(name: TableIdentifier): CatalogTable = synchronized {
+  def getTempViewOrPermanentTableMetadata(name: TableIdentifier): CatalogTable = lockRead {
     val table = formatTableName(name.table)
     if (name.database.isEmpty) {
       getTempView(table).map { plan =>
@@ -603,7 +606,7 @@ class SessionCatalog(
    *
    * This assumes the database specified in `newName` matches the one in `oldName`.
    */
-  def renameTable(oldName: TableIdentifier, newName: TableIdentifier): Unit = synchronized {
+  def renameTable(oldName: TableIdentifier, newName: TableIdentifier): Unit = lockWrite {
     val db = formatDatabaseName(oldName.database.getOrElse(currentDb))
     newName.database.map(formatDatabaseName).foreach { newDb =>
       if (db != newDb) {
@@ -651,7 +654,7 @@ class SessionCatalog(
   def dropTable(
       name: TableIdentifier,
       ignoreIfNotExists: Boolean,
-      purge: Boolean): Unit = synchronized {
+      purge: Boolean): Unit = lockWrite {
     val db = formatDatabaseName(name.database.getOrElse(currentDb))
     val table = formatTableName(name.table)
     if (db == globalTempViewManager.database) {
@@ -691,8 +694,7 @@ class SessionCatalog(
    *
    * @param name The name of the table/view that we look up.
    */
-  def lookupRelation(name: TableIdentifier): LogicalPlan = {
-    synchronized {
+  def lookupRelation(name: TableIdentifier): LogicalPlan = lockRead {
       val db = formatDatabaseName(name.database.getOrElse(currentDb))
       val table = formatTableName(name.table)
       if (db == globalTempViewManager.database) {
@@ -717,7 +719,6 @@ class SessionCatalog(
       } else {
         SubqueryAlias(table, tempViews(table))
       }
-    }
   }
 
   /**
@@ -726,7 +727,7 @@ class SessionCatalog(
    * Note: The temporary view cache is checked only when database is not
    * explicitly specified.
    */
-  def isTemporaryTable(name: TableIdentifier): Boolean = synchronized {
+  def isTemporaryTable(name: TableIdentifier): Boolean = lockRead {
     val table = formatTableName(name.table)
     if (name.database.isEmpty) {
       tempViews.contains(table)
@@ -763,7 +764,7 @@ class SessionCatalog(
         TableIdentifier(name, Some(dbName))
       }
     }
-    val localTempViews = synchronized {
+    val localTempViews = lockWrite {
       StringUtils.filterPattern(tempViews.keys.toSeq, pattern).map { name =>
         TableIdentifier(name)
       }
@@ -774,7 +775,7 @@ class SessionCatalog(
   /**
    * Refresh the cache entry for a metastore table, if any.
    */
-  def refreshTable(name: TableIdentifier): Unit = synchronized {
+  def refreshTable(name: TableIdentifier): Unit = lockWrite {
     val dbName = formatDatabaseName(name.database.getOrElse(currentDb))
     val tableName = formatTableName(name.table)
 
@@ -796,7 +797,7 @@ class SessionCatalog(
    * Drop all existing temporary views.
    * For testing only.
    */
-  def clearTempTables(): Unit = synchronized {
+  def clearTempTables(): Unit = lockWrite {
     tempViews.clear()
   }
 
@@ -1230,7 +1231,7 @@ class SessionCatalog(
   /**
    * Look up the [[ExpressionInfo]] associated with the specified function, assuming it exists.
    */
-  def lookupFunctionInfo(name: FunctionIdentifier): ExpressionInfo = synchronized {
+  def lookupFunctionInfo(name: FunctionIdentifier): ExpressionInfo = lockRead {
     // TODO: just make function registry take in FunctionIdentifier instead of duplicating this
     val database = name.database.orElse(Some(currentDb)).map(formatDatabaseName)
     val qualifiedName = name.copy(database = database)
@@ -1266,7 +1267,7 @@ class SessionCatalog(
    */
   def lookupFunction(
       name: FunctionIdentifier,
-      children: Seq[Expression]): Expression = synchronized {
+      children: Seq[Expression]): Expression = lockRead {
     // Note: the implementation of this function is a little bit convoluted.
     // We probably shouldn't use a single FunctionRegistry to register all three kinds of functions
     // (built-in, temp, and external).
@@ -1353,7 +1354,7 @@ class SessionCatalog(
    *
    * This is mainly used for tests.
    */
-  def reset(): Unit = synchronized {
+  def reset(): Unit = lockWrite {
     setCurrentDatabase(DEFAULT_DATABASE)
     externalCatalog.setCurrentDatabase(DEFAULT_DATABASE)
     listDatabases().filter(_ != DEFAULT_DATABASE).foreach { db =>
@@ -1391,7 +1392,7 @@ class SessionCatalog(
    * because the target [[SessionCatalog]] should not be published at this point. The caller must
    * synchronize on the target if this assumption does not hold.
    */
-  private[sql] def copyStateTo(target: SessionCatalog): Unit = synchronized {
+  private[sql] def copyStateTo(target: SessionCatalog): Unit = lockWrite {
     target.currentDb = currentDb
     // copy over temporary views
     tempViews.foreach(kv => target.tempViews.put(kv._1, kv._2))
@@ -1413,6 +1414,24 @@ class SessionCatalog(
         throw new AnalysisException(s"Can not rename the managed table('$oldName')" +
           s". The associated location('$newTableLocation') already exists.")
       }
+    }
+  }
+
+  private def lockRead[T](body: => T): T = {
+    try {
+      readWriteLock.readLock().lock()
+      body
+    } finally {
+      readWriteLock.readLock().unlock()
+    }
+  }
+
+  private def lockWrite[T](body: => T): T = {
+    try {
+      readWriteLock.writeLock().lock()
+      body
+    } finally {
+      readWriteLock.writeLock().unlock()
     }
   }
 }
