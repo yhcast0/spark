@@ -52,10 +52,17 @@ case class JDBCScanBuilder(
 
   override def pushedFilters(): Array[Filter] = pushedFilter
 
+  private def checkAggregation(aggregation: Aggregation): Boolean = {
+    if (aggregation.aggregateExpressions.isEmpty) {
+      aggregation.groupByExpressions.nonEmpty
+    } else {
+      val dialect = JdbcDialects.get(jdbcOptions.url)
+      JDBCRDD.compileAggregates(aggregation.aggregateExpressions, dialect).nonEmpty
+    }
+  }
   override def pushAggregation(aggregation: Aggregation): Unit = {
     if (jdbcOptions.pushDownAggregate) {
-      val dialect = JdbcDialects.get(jdbcOptions.url)
-      if (!JDBCRDD.compileAggregates(aggregation.aggregateExpressions, dialect).isEmpty) {
+      if (checkAggregation(aggregation)) {
         pushedAggregations = aggregation
       }
     }

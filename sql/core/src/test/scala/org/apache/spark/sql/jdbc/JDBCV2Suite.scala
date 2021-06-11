@@ -19,11 +19,11 @@ package org.apache.spark.sql.jdbc
 
 import java.sql.{Connection, DriverManager}
 import java.util.Properties
-
 import org.apache.spark.SparkConf
 import org.apache.spark.sql.{QueryTest, Row}
 import org.apache.spark.sql.catalyst.analysis.CannotReplaceMissingTableException
 import org.apache.spark.sql.catalyst.plans.logical.Filter
+import org.apache.spark.sql.execution.RowDataSourceScanExec
 import org.apache.spark.sql.execution.datasources.v2.DataSourceV2ScanRelation
 import org.apache.spark.sql.execution.datasources.v2.jdbc.JDBCTableCatalog
 import org.apache.spark.sql.functions.{lit, sum, udf}
@@ -126,6 +126,19 @@ class JDBCV2Suite extends QueryTest with SharedSparkSession {
     checkAnswer(df2, Seq(Row(1, 2), Row(2, 2)))
     val df3 = sql("select count(*) FROM h2.test.employee")
     checkAnswer(df3, Seq(Row(4)))
+
+    val df4 = sql("select DEPT FROM h2.test.employee group by DEPT")
+    val v1Scan = df4.queryExecution.executedPlan.collect {
+      case s: RowDataSourceScanExec => s
+    }
+
+    assert(v1Scan.length == 1)
+    assert(v1Scan.head.aggregation != null)
+    assert(v1Scan.head.aggregation.aggregateExpressions.isEmpty)
+    assert(v1Scan.head.aggregation.groupByExpressions.size == 1)
+    assert(v1Scan.head.aggregation.groupByExpressions.head.equals("DEPT"))
+    checkAnswer(df4, Seq(Row(1), Row(2)))
+
   }
 
   test("xxx") {
