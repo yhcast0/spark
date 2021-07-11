@@ -23,9 +23,11 @@ import scala.collection.mutable
 
 import org.apache.parquet.io.ParquetDecodingException
 
-import org.apache.spark.{Partition => RDDPartition, TaskContext, TaskKilledException}
+import org.apache.spark.{Partition => RDDPartition, SparkEnv, TaskContext}
 import org.apache.spark.deploy.SparkHadoopUtil
 import org.apache.spark.rdd.{InputFileBlockHolder, RDD}
+import org.apache.spark.scheduler.ExecutorCacheTaskLocation
+import org.apache.spark.softaffinity.SoftAffinityManager
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.execution.QueryExecutionException
@@ -72,6 +74,11 @@ class FileScanRDD(
   private val ignoreMissingFiles = sparkSession.sessionState.conf.ignoreMissingFiles
 
   override def compute(split: RDDPartition, context: TaskContext): Iterator[InternalRow] = {
+    val currTaskLocality = context.getLocalProperty("SAMetrics.taskLocality")
+    val files = split.asInstanceOf[FilePartition].files
+    val currFilePath = if (files.isEmpty) "bucket-read-empty-task" else files.head.filePath
+    logInfo(s"SAMetrics=File ${currFilePath} running in task ${context.taskAttemptId()} " +
+      s"on executor ${SparkEnv.get.executorId} with locality ${currTaskLocality}")
     val iterator = new Iterator[Object] with AutoCloseable {
       private val inputMetrics = context.taskMetrics().inputMetrics
       private val existingBytesRead = inputMetrics.bytesRead
@@ -227,10 +234,32 @@ class FileScanRDD(
     }
 
     // Takes the first 3 hosts with the most data to be retrieved
-    hostToNumBytes.toSeq.sortBy {
+    val expectedTargets = hostToNumBytes.toSeq.sortBy {
       case (host, numBytes) => numBytes
     }.reverse.take(3).map {
       case (host, numBytes) => host
+    }
+
+    // logInfo(s"The expected target hosts are ${expectedTargets.mkString(",")}, " +
+    //   s"calculated by file ${files.mkString(",")}")
+    if (!files.isEmpty && SoftAffinityManager.usingSoftAffinity()
+      && !SoftAffinityManager.checkTargetHosts(expectedTargets.toArray)) {
+      // if there is no host in the node list which are executors running on,
+      // using SoftAffinityManager to generate target executors.
+      // Only using the first file to calculate the target executors
+      val expectedExecutors = SoftAffinityManager.askExecutors(files.head.filePath)
+        .map( target => {
+          ExecutorCacheTaskLocation(target._2, target._1).toString
+        })
+      if (expectedExecutors.isEmpty) {
+        expectedTargets
+      } else {
+        logInfo(s"SAMetrics=File ${files.head.filePath} - " +
+          s"the expected executors are ${expectedExecutors.mkString("_")}")
+        expectedExecutors
+      }
+    } else {
+      expectedTargets
     }
   }
 }
