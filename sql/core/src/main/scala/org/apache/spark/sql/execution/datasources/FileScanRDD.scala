@@ -23,7 +23,7 @@ import scala.collection.mutable
 
 import org.apache.parquet.io.ParquetDecodingException
 
-import org.apache.spark.{Partition => RDDPartition, TaskContext}
+import org.apache.spark.{Partition => RDDPartition, SparkEnv, TaskContext}
 import org.apache.spark.deploy.SparkHadoopUtil
 import org.apache.spark.rdd.{InputFileBlockHolder, RDD}
 import org.apache.spark.scheduler.ExecutorCacheTaskLocation
@@ -74,6 +74,11 @@ class FileScanRDD(
   private val ignoreMissingFiles = sparkSession.sessionState.conf.ignoreMissingFiles
 
   override def compute(split: RDDPartition, context: TaskContext): Iterator[InternalRow] = {
+    val currTaskLocality = context.getLocalProperty("SAMetrics.taskLocality")
+    val files = split.asInstanceOf[FilePartition].files
+    val currFilePath = if (files.isEmpty) "bucket-read-empty-task" else files.head.filePath
+    logInfo(s"SAMetrics=File ${currFilePath} running in task ${context.taskAttemptId()} " +
+      s"on executor ${SparkEnv.get.executorId} with locality ${currTaskLocality}")
     val iterator = new Iterator[Object] with AutoCloseable {
       private val inputMetrics = context.taskMetrics().inputMetrics
       private val existingBytesRead = inputMetrics.bytesRead
@@ -235,9 +240,9 @@ class FileScanRDD(
       case (host, numBytes) => host
     }
 
-    logInfo(s"The expected target hosts are ${expectedTargets.mkString(",")}, " +
-      s"calculated by file ${files.mkString(",")}")
-    if (SoftAffinityManager.usingSoftAffinity()
+    // logInfo(s"The expected target hosts are ${expectedTargets.mkString(",")}, " +
+    //   s"calculated by file ${files.mkString(",")}")
+    if (!files.isEmpty && SoftAffinityManager.usingSoftAffinity()
       && !SoftAffinityManager.checkTargetHosts(expectedTargets.toArray)) {
       // if there is no host in the node list which are executors running on,
       // using SoftAffinityManager to generate target executors.
@@ -249,9 +254,8 @@ class FileScanRDD(
       if (expectedExecutors.isEmpty) {
         expectedTargets
       } else {
-        logInfo(s"After using SoftAffinity, " +
-          s"the expected target executors are ${expectedExecutors.mkString(",")}, " +
-          s"calculated by files ${files.head}")
+        logInfo(s"SAMetrics=File ${files.head.filePath} - " +
+          s"the expected executors are ${expectedExecutors.mkString("_")}")
         expectedExecutors
       }
     } else {
