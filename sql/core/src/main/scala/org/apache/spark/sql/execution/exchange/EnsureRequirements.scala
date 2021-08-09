@@ -150,13 +150,17 @@ case class EnsureRequirements(conf: SQLConf) extends Rule[SparkPlan] {
   }
 
   private def isHashPartitioningFromCube(child: SparkPlan): Boolean = {
-    if (child.outputPartitioning != null
-      && child.outputPartitioning.isInstanceOf[HashPartitioning]) {
-      val expressions = child.outputPartitioning.asInstanceOf[HashPartitioning].expressions
-      if (expressions.size > 0) {
-        val partitionName = expressions.apply(0).asInstanceOf[AttributeReference].name
-        if (partitionName.contains(EnsureRequirements.isHashPartitioningFromCube)) {
-          return true
+    val outPartitioning = child.outputPartitioning
+    if (outPartitioning != null
+      && outPartitioning.isInstanceOf[PartitioningCollection]) {
+      val partitionings = outPartitioning.asInstanceOf[PartitioningCollection].partitionings
+      if (partitionings.size > 0 && partitionings.apply(0).isInstanceOf[HashPartitioning]) {
+        val expressions = child.outputPartitioning.asInstanceOf[HashPartitioning].expressions
+        if (expressions.size > 0) {
+          val partitionName = expressions.apply(0).asInstanceOf[AttributeReference].name
+          if (partitionName.contains(EnsureRequirements.isHashPartitioningFromCube)) {
+            return true
+          }
         }
       }
     }
