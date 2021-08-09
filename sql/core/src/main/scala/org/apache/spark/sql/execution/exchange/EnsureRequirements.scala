@@ -187,6 +187,9 @@ case class EnsureRequirements(conf: SQLConf) extends Rule[SparkPlan] {
         if (eliminateSingleShuffleEnabled.get && isNeedReShuffle) {
           ShuffleExchange(createPartitioning(distribution, defaultNumPreShufflePartitions), child)
         } else {
+          if (!eliminateSingleShuffleEnabled.get) {
+            return child
+          }
           if (isHashPartitioningFromCube(child) && isAfterJoin) {
             ShuffleExchange(createPartitioning(distribution, defaultNumPreShufflePartitions), child)
           } else {
