@@ -149,6 +149,22 @@ case class EnsureRequirements(conf: SQLConf) extends Rule[SparkPlan] {
     withCoordinator
   }
 
+  private def isHashPartitioningFromCube(child: SparkPlan): Boolean = {
+    if (child.outputPartitioning != null
+      && child.outputPartitioning.isInstanceOf[HashPartitioning]) {
+      val expressions = child.outputPartitioning.asInstanceOf[HashPartitioning].expressions
+      if (expressions.size > 0) {
+        val partitionName = expressions.apply(0).asInstanceOf[AttributeReference].name
+        if (partitionName.contains(EnsureRequirements.isHashPartitioningFromCube)) {
+          return true
+        }
+      }
+    }
+    false
+  }
+
+  var isAfterJoin = false
+
   private def ensureDistributionAndOrdering(operator: SparkPlan): SparkPlan = {
     val requiredChildDistributions: Seq[Distribution] = operator.requiredChildDistribution
     val requiredChildOrderings: Seq[Seq[SortOrder]] = operator.requiredChildOrdering
@@ -171,7 +187,18 @@ case class EnsureRequirements(conf: SQLConf) extends Rule[SparkPlan] {
         if (eliminateSingleShuffleEnabled.get && isNeedReShuffle) {
           ShuffleExchange(createPartitioning(distribution, defaultNumPreShufflePartitions), child)
         } else {
-          child
+          if (isHashPartitioningFromCube(child) && isAfterJoin) {
+            ShuffleExchange(createPartitioning(distribution, defaultNumPreShufflePartitions), child)
+          } else {
+            val canonicalName = child.getClass.getCanonicalName
+            if (canonicalName.contains(EnsureRequirements.isCubeFileSourceScanExec)) {
+              isAfterJoin = false
+            }
+            if (canonicalName.contains(EnsureRequirements.isSortMergeJoinExec)) {
+              isAfterJoin = true
+            }
+            child
+          }
         }
       case (child, BroadcastDistribution(mode)) =>
         BroadcastExchangeExec(mode, child)
@@ -284,6 +311,12 @@ case class EnsureRequirements(conf: SQLConf) extends Rule[SparkPlan] {
 }
 
 object EnsureRequirements {
+
+  val isHashPartitioningFromCube = "CUBE_HASH_PARTITIONING"
+
+  val isCubeFileSourceScanExec = "CubeFileSourceScanExec"
+
+  val isSortMergeJoinExec = "SortMergeJoinExec"
 
   val eliminateSingleShuffleEnabled = new ThreadLocal[Boolean]() {
     override protected def initialValue = false
