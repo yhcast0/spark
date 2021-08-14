@@ -325,6 +325,10 @@ class ParquetFileFormat
       SQLConf.PARQUET_INT96_AS_TIMESTAMP.key,
       sparkSession.sessionState.conf.isParquetINT96AsTimestamp)
 
+    hadoopConf.setBoolean(
+      SQLConf.FILE_META_CACHE_PARQUET_ENABLED.key,
+      sparkSession.sessionState.conf.fileMetaCacheParquetEnabled)
+
     val broadcastedHadoopConf =
       sparkSession.sparkContext.broadcast(new SerializableConfiguration(hadoopConf))
 
@@ -366,14 +370,23 @@ class ParquetFileFormat
             null)
 
         val sharedConf = broadcastedHadoopConf.value.value
+        val metaCacheEnabled =
+          sharedConf.getBoolean(SQLConf.FILE_META_CACHE_PARQUET_ENABLED.key, false)
 
         logInfo(s"READ_RETRY before footerFileMetaData $filePath")
         SpecificParquetRecordReaderBase.tryOpenCloseForS3(sharedConf, filePath)
-        lazy val footerFileMetaData =
-          ParquetFileReader.readFooter(sharedConf, filePath, SKIP_ROW_GROUPS).getFileMetaData
+        lazy val footer = if (split.getRowGroupOffsets == null) {
+          val start = System.currentTimeMillis()
+          val footerByRange = ParquetFileMetaUtils.readFooterByRange(metaCacheEnabled, sharedConf,
+            filePath, split.getStart(), split.getEnd())
+          logInfo(s"Read parquet footer in fileformat took: ${System.currentTimeMillis() - start}")
+          footerByRange
+        } else {
+          ParquetFileMetaUtils.readFooterByNoFilter(metaCacheEnabled, sharedConf, filePath)
+        }
         // Try to push down filters when filter push-down is enabled.
         val pushed = if (enableParquetFilterPushDown) {
-          val parquetSchema = footerFileMetaData.getSchema
+          val parquetSchema = footer.getFileMetaData.getSchema
           val parquetFilters = new ParquetFilters(pushDownDate, pushDownTimestamp, pushDownDecimal,
             pushDownStringStartWith, pushDownInFilterThreshold, isCaseSensitive)
           filters
@@ -394,7 +407,7 @@ class ParquetFileFormat
         // have different writers.
         // Define isCreatedByParquetMr as function to avoid unnecessary parquet footer reads.
         def isCreatedByParquetMr: Boolean =
-          footerFileMetaData.getCreatedBy().startsWith("parquet-mr")
+          footer.getFileMetaData.getCreatedBy().startsWith("parquet-mr")
 
         val convertTz =
           if (timestampConversion && !isCreatedByParquetMr) {
@@ -417,6 +430,8 @@ class ParquetFileFormat
           logInfo(s"FILE_SYSTEM_CHECK VectorizedParquetRecordReader $filePath")
           val vectorizedReader = new VectorizedParquetRecordReader(
             convertTz.orNull, enableOffHeapColumnVector && taskContext.isDefined, capacity)
+          vectorizedReader.setMetaCacheEnabled(metaCacheEnabled)
+          vectorizedReader.setFooter(footer)
           val iter = new RecordReaderIterator(vectorizedReader)
           // SPARK-23457 Register a task completion lister before `initialization`.
           taskContext.foreach(_.addTaskCompletionListener[Unit](_ => iter.close()))
