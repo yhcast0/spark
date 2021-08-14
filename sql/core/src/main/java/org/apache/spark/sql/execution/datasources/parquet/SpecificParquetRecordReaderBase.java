@@ -31,6 +31,8 @@ import java.util.Map;
 import java.util.Set;
 
 import org.apache.hadoop.fs.FileSystem;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import scala.Option;
 
 import static org.apache.parquet.filter2.compat.RowGroupFilter.filterRowGroups;
@@ -76,6 +78,8 @@ import org.apache.spark.util.AccumulatorV2;
  * this way, albeit at a higher cost to implement. This base class is reusable.
  */
 public abstract class SpecificParquetRecordReaderBase<T> extends RecordReader<Void, T> {
+  private final Logger logger = LoggerFactory.getLogger(SpecificParquetRecordReaderBase.class);
+
   protected Path file;
   protected MessageType fileSchema;
   protected MessageType requestedSchema;
@@ -89,6 +93,10 @@ public abstract class SpecificParquetRecordReaderBase<T> extends RecordReader<Vo
 
   protected ParquetFileReader reader;
 
+  protected ParquetMetadata footer;
+
+  protected boolean metaCacheEnabled = false;
+
   @Override
   public void initialize(InputSplit inputSplit, TaskAttemptContext taskAttemptContext)
       throws IOException, InterruptedException {
@@ -97,19 +105,25 @@ public abstract class SpecificParquetRecordReaderBase<T> extends RecordReader<Vo
     this.file = split.getPath();
     long[] rowGroupOffsets = split.getRowGroupOffsets();
 
-    ParquetMetadata footer;
     List<BlockMetaData> blocks;
 
     // if task.side.metadata is set, rowGroupOffsets is null
     if (rowGroupOffsets == null) {
       // then we need to apply the predicate push down filter
-      footer = readFooter(configuration, file, range(split.getStart(), split.getEnd()));
+      long start = System.currentTimeMillis();
+      if (footer == null) {
+        footer = ParquetFileMetaUtils.readFooterByRange(metaCacheEnabled, configuration, file,
+                split.getStart(), split.getEnd());
+      }
+      logger.info("Read parquet footer in reader took: {}", System.currentTimeMillis() - start);
       MessageType fileSchema = footer.getFileMetaData().getSchema();
       FilterCompat.Filter filter = getFilter(configuration);
       blocks = filterRowGroups(filter, footer.getBlocks(), fileSchema);
     } else {
       // otherwise we find the row groups that were selected on the client
-      footer = readFooter(configuration, file, NO_FILTER);
+      if (footer == null) {
+        footer = ParquetFileMetaUtils.readFooterByNoFilter(metaCacheEnabled, configuration, file);
+      }
       Set<Long> offsets = new HashSet<>();
       for (long offset : rowGroupOffsets) {
         offsets.add(offset);
@@ -165,6 +179,14 @@ public abstract class SpecificParquetRecordReaderBase<T> extends RecordReader<Vo
         intAccum.add(blocks.size());
       }
     }
+  }
+
+  public void setFooter(ParquetMetadata footer) {
+    this.footer = footer;
+  }
+
+  public void setMetaCacheEnabled(boolean metaCacheEnabled) {
+    this.metaCacheEnabled = metaCacheEnabled;
   }
 
   /**

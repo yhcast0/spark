@@ -28,6 +28,7 @@ import org.apache.spark.sql._
 import org.apache.spark.sql.catalyst.{InternalRow, TableIdentifier}
 import org.apache.spark.sql.catalyst.expressions.SpecificInternalRow
 import org.apache.spark.sql.execution.FileSourceScanExec
+import org.apache.spark.sql.execution.datasources.FileMetaCacheManager
 import org.apache.spark.sql.execution.datasources.SQLHadoopMapReduceCommitProtocol
 import org.apache.spark.sql.execution.datasources.parquet.TestingUDT.{NestedStruct, NestedStructUDT, SingleElement}
 import org.apache.spark.sql.internal.SQLConf
@@ -888,6 +889,31 @@ class ParquetQuerySuite extends QueryTest with ParquetTest with SharedSQLContext
         // Fails without SPARK-24230:
         //   java.io.IOException: expecting more rows but reached last block. Read 0 out of 50
         checkAnswer(sql("SELECT _2 FROM t WHERE t._1 = 5"), Seq.empty)
+      }
+    }
+  }
+
+  test("SPARK-33449: simple select queries with file meta cache") {
+    withSQLConf(SQLConf.FILE_META_CACHE_PARQUET_ENABLED.key -> "true") {
+      val tableName = "parquet_use_meta_cache"
+      withTable(tableName) {
+        (0 until 10).map(i => (i, i.toString)).toDF("id", "value")
+          .write.saveAsTable(tableName)
+        try {
+          val statsBeforeQuery = FileMetaCacheManager.cacheStats
+          checkAnswer(sql(s"SELECT id FROM  $tableName where id > 5"),
+            (6 until 10).map(Row.apply(_)))
+          val statsAfterQuery1 = FileMetaCacheManager.cacheStats
+          assert(statsAfterQuery1.missCount() - statsBeforeQuery.missCount() == 2)
+          assert(statsAfterQuery1.hitCount() - statsBeforeQuery.hitCount() == 2)
+          checkAnswer(sql(s"SELECT id FROM $tableName where id < 5"),
+            (0 until 5).map(Row.apply(_)))
+          val statsAfterQuery2 = FileMetaCacheManager.cacheStats
+          assert(statsAfterQuery2.missCount() - statsAfterQuery1.missCount() == 0)
+          assert(statsAfterQuery2.hitCount() - statsAfterQuery1.hitCount() == 4)
+        } finally {
+          FileMetaCacheManager.cleanUp()
+        }
       }
     }
   }
