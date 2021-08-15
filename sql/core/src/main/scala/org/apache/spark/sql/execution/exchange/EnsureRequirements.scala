@@ -149,6 +149,33 @@ case class EnsureRequirements(conf: SQLConf) extends Rule[SparkPlan] {
     withCoordinator
   }
 
+  private def isCubeHashPartitioning(child: SparkPlan): Boolean = {
+    val outPartitioning = child.outputPartitioning
+    outPartitioning match {
+      case HashPartitioning(expressions, numPartitions) =>
+        expressions.foreach(expression => {
+          if (expression.isInstanceOf[AttributeReference]) {
+            val partitionName = expression.asInstanceOf[AttributeReference].name
+            if (partitionName.contains(EnsureRequirements._CUBE_HASH_PARTITIONING)) return true
+          }
+        })
+        false
+      case PartitioningCollection(partitionings) =>
+        if (partitionings.size == 1 && partitionings.apply(0).isInstanceOf[HashPartitioning]) {
+          val expressions = partitionings.apply(0).asInstanceOf[HashPartitioning].expressions
+          expressions.foreach(expression => {
+            if (expression.isInstanceOf[AttributeReference]) {
+              val partitionName = expression.asInstanceOf[AttributeReference].name
+              if (partitionName.contains(EnsureRequirements._CUBE_HASH_PARTITIONING)) return true
+            }
+          })
+        }
+        false
+      case _ =>
+        false
+    }
+  }
+
   private def ensureDistributionAndOrdering(operator: SparkPlan): SparkPlan = {
     val requiredChildDistributions: Seq[Distribution] = operator.requiredChildDistribution
     val requiredChildOrderings: Seq[Seq[SortOrder]] = operator.requiredChildOrdering
@@ -158,10 +185,9 @@ case class EnsureRequirements(conf: SQLConf) extends Rule[SparkPlan] {
 
     // exclude eliminate single shuffle when it's has two children
     var isNeedReShuffle = false;
-    if (eliminateSingleShuffleEnabled.get && children.size > 1) {
-      val firstShardNum = children.apply(0).outputPartitioning.numPartitions
-      children.foreach { f =>
-        if (f.outputPartitioning.numPartitions != firstShardNum) isNeedReShuffle = true
+    if (eliminateSingleShuffleEnabled.get && children.size == 2) {
+      if (isCubeHashPartitioning(children.apply(0)) ^ isCubeHashPartitioning(children.apply(1))) {
+        isNeedReShuffle = true
       }
     }
 
@@ -284,6 +310,8 @@ case class EnsureRequirements(conf: SQLConf) extends Rule[SparkPlan] {
 }
 
 object EnsureRequirements {
+
+  val _CUBE_HASH_PARTITIONING = "_CUBE_HASH_PARTITIONING"
 
   val eliminateSingleShuffleEnabled = new ThreadLocal[Boolean]() {
     override protected def initialValue = false
