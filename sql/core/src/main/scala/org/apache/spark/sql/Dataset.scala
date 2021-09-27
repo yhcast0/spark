@@ -3304,7 +3304,16 @@ class Dataset[T] private[sql](
     createTempViewCommand(viewName, replace = false, global = false)
   }
 
-
+  /**
+   * Creates a local temporary view using the given name including database. The lifetime of this
+   * temporary view is tied to the [[SparkSession]] that was used to create this Dataset.
+   *
+   * @group basic
+   * @since 2.0.0
+   */
+  def createOrReplaceTempViewWithDatabase(viewName: String): Unit = withPlan {
+    createTempViewCommand(viewName, replace = true, global = false, allowDatabase = true)
+  }
 
   /**
    * Creates a local temporary view using the given name. The lifetime of this
@@ -3355,7 +3364,8 @@ class Dataset[T] private[sql](
   private def createTempViewCommand(
       viewName: String,
       replace: Boolean,
-      global: Boolean): CreateViewCommand = {
+      global: Boolean,
+      allowDatabase: Boolean = false): CreateViewCommand = {
     val viewType = if (global) GlobalTempView else LocalTempView
 
     val tableIdentifier = try {
@@ -3372,7 +3382,8 @@ class Dataset[T] private[sql](
       child = logicalPlan,
       allowExisting = false,
       replace = replace,
-      viewType = viewType)
+      viewType = viewType,
+      allowDatabase = allowDatabase)
   }
 
   /**

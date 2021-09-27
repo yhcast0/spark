@@ -3052,6 +3052,13 @@ object SQLConf {
       .stringConf
       .createWithDefault(null)
 
+  val TEMP_VIEW_DATABASE_ENABLED =
+    buildConf("spark.sql.tempView.database.enabled")
+      .internal()
+      .doc("When false, it is not allowed to add database prefix for the TEMPORARY view name.")
+      .booleanConf
+      .createWithDefault(false)
+
   val VIEW_TRUNCATE_ENABLE =
     buildConf("spark.sql.view-truncate-enabled")
       .booleanConf
@@ -3718,6 +3725,8 @@ class SQLConf extends Serializable with Logging {
   def charVarcharAsString: Boolean = getConf(SQLConf.LEGACY_CHAR_VARCHAR_AS_STRING)
 
   def defaultDataBase: String = getConf(SQLConf.DEFAULT_DATABASE_NAME)
+
+  def tempViewDatabaseEnabled: Boolean = getConf(TEMP_VIEW_DATABASE_ENABLED)
 
   /** ********************** SQLConf functionality methods ************ */
 
