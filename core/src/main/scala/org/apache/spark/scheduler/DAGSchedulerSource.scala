@@ -26,6 +26,10 @@ private[scheduler] class DAGSchedulerSource(val dagScheduler: DAGScheduler)
   override val metricRegistry = new MetricRegistry()
   override val sourceName = "DAGScheduler"
 
+  metricRegistry.register(MetricRegistry.name("stage", "allStages"), new Gauge[Int] {
+    override def getValue: Int = dagScheduler.numTotalStages
+  })
+
   metricRegistry.register(MetricRegistry.name("stage", "failedStages"), new Gauge[Int] {
     override def getValue: Int = dagScheduler.failedStages.size
   })
@@ -38,12 +42,38 @@ private[scheduler] class DAGSchedulerSource(val dagScheduler: DAGScheduler)
     override def getValue: Int = dagScheduler.waitingStages.size
   })
 
+  metricRegistry.register(MetricRegistry.name("stage", "completedStages"), new Gauge[Int] {
+    override def getValue: Int = dagScheduler.completedStages.get()
+  })
+
   metricRegistry.register(MetricRegistry.name("job", "allJobs"), new Gauge[Int] {
     override def getValue: Int = dagScheduler.numTotalJobs
   })
 
   metricRegistry.register(MetricRegistry.name("job", "activeJobs"), new Gauge[Int] {
     override def getValue: Int = dagScheduler.activeJobs.size
+  })
+
+  metricRegistry.register(MetricRegistry.name("job", "completedJobs"), new Gauge[Int] {
+    override def getValue: Int = dagScheduler.completedJobs.get()
+  })
+
+  metricRegistry.register(MetricRegistry.name("task", "allTasks"), new Gauge[Long] {
+    override def getValue: Long = dagScheduler.allTasksCount.get()
+  })
+
+  metricRegistry.register(MetricRegistry.name("task", "completedTasks"), new Gauge[Long] {
+    override def getValue: Long = dagScheduler.completedTasksCount.get()
+  })
+
+  metricRegistry.register(MetricRegistry.name("task", "runningTasks"), new Gauge[Int] {
+    override def getValue: Int = dagScheduler.runningTasksCount()
+  })
+
+  metricRegistry.register(MetricRegistry.name("task", "pendingTasks"), new Gauge[Int] {
+    override def getValue: Int =
+      (dagScheduler.allTasksCount.get() - dagScheduler.completedTasksCount.get() - dagScheduler
+        .runningTasksCount()).intValue()
   })
 
   /** Timer that tracks the time to process messages in the DAGScheduler's event loop */
