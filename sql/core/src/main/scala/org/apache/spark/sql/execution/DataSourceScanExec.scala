@@ -501,9 +501,16 @@ case class FileSourceScanExec(
     new FileScanRDD(fsRelation.sparkSession, readFile, partitions)
   }
 
-  private def getBlockLocations(file: FileStatus): Array[BlockLocation] = file match {
-    case f: LocatedFileStatus => f.getBlockLocations
-    case f => Array.empty[BlockLocation]
+  private def getBlockLocations(file: FileStatus): Array[BlockLocation] = {
+    if (relation.sparkSession
+      .sparkContext.getConf.getBoolean("spark.kylin.sparkcube.enabled", false)) {
+      Array.empty[BlockLocation]
+    } else {
+      file match {
+        case f: LocatedFileStatus => f.getBlockLocations
+        case f => Array.empty[BlockLocation]
+      }
+    }
   }
 
   // Given locations of all blocks of a single file, `blockLocations`, and an `(offset, length)`

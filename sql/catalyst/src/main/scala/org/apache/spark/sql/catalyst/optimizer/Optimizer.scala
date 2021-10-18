@@ -276,6 +276,15 @@ abstract class Optimizer(sessionCatalog: SessionCatalog)
       }
     }
   }
+
+  override def execute(plan: LogicalPlan): LogicalPlan = {
+    val lg = super.execute(plan)
+    logInfo("--SparkCube-- Optimizer Start")
+    logInfo(RuleExecutor.dumpTimeSpent())
+    logInfo("--SparkCube-- Optimizer End")
+    RuleExecutor.resetMetrics()
+    lg
+  }
 }
 
 /**

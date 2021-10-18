@@ -122,13 +122,15 @@ class InMemoryFileIndex(
       }
       Unit // for some reasons scalac 2.12 needs this; return type doesn't matter
     }
-    val filter = FileInputFormat.getInputPathFilter(new JobConf(hadoopConf, this.getClass))
-    val discovered = InMemoryFileIndex.bulkListLeafFiles(
-      pathsToFetch, hadoopConf, filter, sparkSession)
-    discovered.foreach { case (path, leafFiles) =>
-      HiveCatalogMetrics.incrementFilesDiscovered(leafFiles.size)
-      fileStatusCache.putLeafFiles(path, leafFiles.toArray)
-      output ++= leafFiles
+    if (!pathsToFetch.isEmpty) {
+      val filter = FileInputFormat.getInputPathFilter(new JobConf(hadoopConf, this.getClass))
+      val discovered = InMemoryFileIndex.bulkListLeafFiles(
+        pathsToFetch, hadoopConf, filter, sparkSession)
+      discovered.foreach { case (path, leafFiles) =>
+        HiveCatalogMetrics.incrementFilesDiscovered(leafFiles.size)
+        fileStatusCache.putLeafFiles(path, leafFiles.toArray)
+        output ++= leafFiles
+      }
     }
     output
   }
