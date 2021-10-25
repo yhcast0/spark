@@ -164,13 +164,14 @@ class ParquetWriteSupport extends WriteSupport[InternalRow] with Logging {
     }
   }
 
-  @inline private def checkCellSize(cellLength: Long): Unit = {
+/*  @inline private def checkCellSize(cellLength: Long): Unit = {
     if (cellLength >= parquetCellSizeLimit) {
       logInfo(s"single cell size: $cellLength ")
       logInfo(s"spark.sql.parquet.cellSizeLimit: $parquetCellSizeLimit ")
       this.needCheckRowSize = true
     }
   }
+  */
 
   private def makeWriter(dataType: DataType): ValueWriter = {
     dataType match {
@@ -209,7 +210,7 @@ class ParquetWriteSupport extends WriteSupport[InternalRow] with Logging {
       case StringType =>
         (row: SpecializedGetters, ordinal: Int) =>
           val bytes = row.getUTF8String(ordinal).getBytes
-          checkCellSize(bytes.length)
+          // checkCellSize(bytes.length)
           recordConsumer.addBinary(
             Binary.fromReusedByteArray(bytes))
 
@@ -238,7 +239,7 @@ class ParquetWriteSupport extends WriteSupport[InternalRow] with Logging {
       case BinaryType =>
         (row: SpecializedGetters, ordinal: Int) =>
           val bytes = row.getBinary(ordinal)
-          checkCellSize(bytes.length)
+          // checkCellSize(bytes.length)
           recordConsumer.addBinary(
             Binary.fromReusedByteArray(bytes))
 
