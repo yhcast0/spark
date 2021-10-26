@@ -20,7 +20,7 @@ package org.apache.spark.scheduler
 import java.io.NotSerializableException
 import java.util.Properties
 import java.util.concurrent.{ConcurrentHashMap, TimeoutException, TimeUnit}
-import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.{AtomicInteger, AtomicLong}
 
 import scala.annotation.tailrec
 import scala.collection.Map
@@ -142,6 +142,7 @@ private[spark] class DAGScheduler(
   private[scheduler] val nextJobId = new AtomicInteger(0)
   private[scheduler] def numTotalJobs: Int = nextJobId.get()
   private val nextStageId = new AtomicInteger(0)
+  private[scheduler] def numTotalStages: Int = nextStageId.get()
 
   private[scheduler] val jobIdToStageIds = new HashMap[Int, HashSet[Int]]
   private[scheduler] val stageIdToStage = new HashMap[Int, Stage]
@@ -163,7 +164,11 @@ private[spark] class DAGScheduler(
   // Stages that must be resubmitted due to fetch failures
   private[scheduler] val failedStages = new HashSet[Stage]
 
+  private[scheduler] val completedStages = new AtomicInteger(0)
+
   private[scheduler] val activeJobs = new HashSet[ActiveJob]
+
+  private[scheduler] val completedJobs = new AtomicInteger(0)
 
   /**
    * Contains the locations that each RDD's partitions are cached on.  This map's keys are RDD ids
@@ -252,6 +257,13 @@ private[spark] class DAGScheduler(
 
   private[spark] val eventProcessLoop = new DAGSchedulerEventProcessLoop(this)
   taskScheduler.setDAGScheduler(this)
+
+  private[scheduler] val allTasksCount = new AtomicLong(0)
+
+  private[scheduler] val completedTasksCount = new AtomicLong(0)
+
+  def runningTasksCount(): Int =
+    this.taskScheduler.asInstanceOf[TaskSchedulerImpl].taskIdToExecutorId.size
 
   private val pushBasedShuffleEnabled = Utils.isPushBasedShuffleEnabled(sc.getConf, isDriver = true)
 
@@ -802,6 +814,7 @@ private[spark] class DAGScheduler(
     jobIdToStageIds -= job.jobId
     jobIdToActiveJob -= job.jobId
     activeJobs -= job
+    completedJobs.addAndGet(1)
     job.finalStage match {
       case r: ResultStage => r.removeActiveJob()
       case m: ShuffleMapStage => m.removeActiveJob(job)
@@ -1479,6 +1492,7 @@ private[spark] class DAGScheduler(
     if (tasks.nonEmpty) {
       logInfo(s"Submitting ${tasks.size} missing tasks from $stage (${stage.rdd}) (first 15 " +
         s"tasks are for partitions ${tasks.take(15).map(_.partitionId)})")
+      allTasksCount.addAndGet(tasks.size)
       taskScheduler.submitTasks(new TaskSet(
         tasks.toArray, stage.id, stage.latestInfo.attemptNumber, jobId, properties,
         stage.resourceProfileId))
@@ -1638,6 +1652,7 @@ private[spark] class DAGScheduler(
       case _ =>
     }
     postTaskEnd(event)
+    completedTasksCount.addAndGet(1)
 
     event.reason match {
       case Success =>
@@ -2334,6 +2349,7 @@ private[spark] class DAGScheduler(
     }
     listenerBus.post(SparkListenerStageCompleted(stage.latestInfo))
     runningStages -= stage
+    completedStages.addAndGet(1)
   }
 
   /**

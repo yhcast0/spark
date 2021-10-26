@@ -402,6 +402,15 @@ abstract class Optimizer(catalogManager: CatalogManager)
       }
     }
   }
+
+  override def execute(plan: LogicalPlan): LogicalPlan = {
+    logInfo("--CatalystTime-- Optimizer Start")
+    val lg = super.execute(plan)
+    logInfo(RuleExecutor.dumpTimeSpent())
+    logInfo("--CatalystTime-- Optimizer End")
+    RuleExecutor.resetMetrics()
+    lg
+  }
 }
 
 /**

@@ -92,7 +92,7 @@ case class QueryExecutionMetering() {
       val numEffectiveRun = numEffectiveRunsMap.get(name)
 
       val ruleName = name.padTo(maxLengthRuleNames, " ").mkString
-      val runtimeValue = s"$timeEffectiveRun / $time".padTo(len = 47, " ").mkString
+      val runtimeValue = s"${timeEffectiveRun / 1000000D} / $time".padTo(len = 47, " ").mkString
       val numRunValue = s"$numEffectiveRun / $numRuns".padTo(len = 47, " ").mkString
       s"$ruleName $runtimeValue $numRunValue"
     }.mkString("\n", "\n", "")
