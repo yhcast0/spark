@@ -50,7 +50,12 @@ abstract class PartitioningAwareFileIndex(
   override def partitionSchema: StructType = partitionSpec().partitionColumns
 
   protected val hadoopConf: Configuration =
-    sparkSession.sessionState.newHadoopConfWithOptions(parameters)
+    if (parameters.isEmpty || sparkSession.sparkContext.getConf.getBoolean(
+      "spark.kylin.sparkcube.enabled", false)) {
+      sparkSession.sparkContext.hadoopConfiguration
+    } else {
+      sparkSession.sessionState.newHadoopConfWithOptions(parameters)
+    }
 
   protected def leafFiles: mutable.LinkedHashMap[Path, FileStatus]
 
