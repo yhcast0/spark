@@ -18,8 +18,9 @@
 package org.apache.spark.deploy.yarn.security
 
 import org.apache.hadoop.conf.Configuration
-import org.apache.hadoop.security.UserGroupInformation.AuthenticationMethod
 import org.apache.hadoop.security.{Credentials, UserGroupInformation}
+import org.apache.hadoop.security.UserGroupInformation.AuthenticationMethod
+
 import org.apache.spark.SparkConf
 
 /**
