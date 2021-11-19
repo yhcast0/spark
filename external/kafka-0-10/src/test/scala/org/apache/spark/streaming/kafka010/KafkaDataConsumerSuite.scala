@@ -27,10 +27,12 @@ import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.serialization.ByteArrayDeserializer
 import org.mockito.Mockito.when
 import org.scalatest.BeforeAndAfterAll
+import org.scalatest.Ignore
 import org.scalatestplus.mockito.MockitoSugar
 
 import org.apache.spark._
 
+@Ignore
 class KafkaDataConsumerSuite extends SparkFunSuite with MockitoSugar with BeforeAndAfterAll {
   private var testUtils: KafkaTestUtils = _
   private val topic = "topic" + Random.nextInt()

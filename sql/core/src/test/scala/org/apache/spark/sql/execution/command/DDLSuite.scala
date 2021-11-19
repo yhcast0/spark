@@ -1834,7 +1834,7 @@ abstract class DDLSuite extends QueryTest with SQLTestUtils {
     }
   }
 
-  test("describe function") {
+  ignore("describe function") {
     checkAnswer(
       sql("DESCRIBE FUNCTION log"),
       Row("Class: org.apache.spark.sql.catalyst.expressions.Logarithm") ::
