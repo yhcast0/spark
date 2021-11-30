@@ -26,7 +26,7 @@
   </parent>
   <groupId>org.apache.spark</groupId>
   <artifactId>spark-parent_2.11</artifactId>
-  <version>2.2.1-kylin-r29</version>
+  <version>2.2.1-kylin-r30</version>
   <packaging>pom</packaging>
   <name>Spark Project Parent POM</name>
   <url>http://spark.apache.org/</url>
@@ -159,6 +159,7 @@
     <scala.version>2.11.8</scala.version>
     <scala.binary.version>2.11</scala.binary.version>
     <codehaus.jackson.version>1.9.13</codehaus.jackson.version>
+    <jackson-mapper-asl.version>1.9.13-cloudera.1</jackson-mapper-asl.version>
     <fasterxml.jackson.version>2.9.10</fasterxml.jackson.version>
     <fasterxml.jackson.databind.version>2.9.10.8</fasterxml.jackson.databind.version>
     <snappy.version>1.1.2.6</snappy.version>
@@ -183,6 +184,8 @@
     <paranamer.version>2.6</paranamer.version>
     <maven-antrun.version>1.8</maven-antrun.version>
     <commons-crypto.version>1.0.0</commons-crypto.version>
+    <commons-beanutils.version>1.9.4</commons-beanutils.version>
+    <xercesImpl.version>2.12.0</xercesImpl.version>
 
     <test.java.home>${java.home}</test.java.home>
     <test.exclude.tags></test.exclude.tags>
@@ -231,6 +234,11 @@
       <snapshots>
         <enabled>false</enabled>
       </snapshots>
+    </repository>
+    <repository>
+      <id>cloudera</id>
+      <url>https://repository.cloudera.com/artifactory/cloudera-repos/
+      </url>
     </repository>
   </repositories>
   <pluginRepositories>
@@ -1164,13 +1172,13 @@
       <dependency>
         <groupId>org.codehaus.jackson</groupId>
         <artifactId>jackson-core-asl</artifactId>
-        <version>${codehaus.jackson.version}</version>
+        <version>${jackson-mapper-asl.version}</version>
         <scope>${hadoop.deps.scope}</scope>
       </dependency>
       <dependency>
         <groupId>org.codehaus.jackson</groupId>
         <artifactId>jackson-mapper-asl</artifactId>
-        <version>${codehaus.jackson.version}</version>
+        <version>${jackson-mapper-asl.version}</version>
         <scope>${hadoop.deps.scope}</scope>
       </dependency>
       <dependency>
@@ -1874,6 +1882,16 @@
         <groupId>com.thoughtworks.paranamer</groupId>
         <artifactId>paranamer</artifactId>
         <version>${paranamer.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>commons-beanutils</groupId>
+        <artifactId>commons-beanutils</artifactId>
+        <version>${commons-beanutils.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>xerces</groupId>
+        <artifactId>xercesImpl</artifactId>
+        <version>${xercesImpl.version}</version>
       </dependency>
     </dependencies>
   </dependencyManagement>
