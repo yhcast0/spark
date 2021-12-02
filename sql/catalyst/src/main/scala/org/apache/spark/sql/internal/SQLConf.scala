@@ -4427,6 +4427,16 @@ object SQLConf {
       .booleanConf
       .createWithDefault(false)
 
+  val HIVE_SPECIFIC_FS_LOCATION =
+    buildConf("spark.sql.hive.specific.fs.location")
+      .stringConf
+      .createWithDefault(null)
+
+  val VIEW_TRUNCATE_ENABLE =
+    buildConf("spark.sql.view-truncate-enabled")
+      .booleanConf
+      .createWithDefault(false)
+
   /**
    * Holds information about keys that have been deprecated.
    *
@@ -5175,6 +5185,8 @@ class SQLConf extends Serializable with Logging with SqlApiConf {
   override def setOpsPrecedenceEnforced: Boolean =
     getConf(SQLConf.LEGACY_SETOPS_PRECEDENCE_ENABLED)
 
+  def isViewTruncateEnable: Boolean = getConf(SQLConf.VIEW_TRUNCATE_ENABLE)
+
   override def exponentLiteralAsDecimalEnabled: Boolean =
     getConf(SQLConf.LEGACY_EXPONENT_LITERAL_AS_DECIMAL_ENABLED)
 
@@ -5241,6 +5253,8 @@ class SQLConf extends Serializable with Logging with SqlApiConf {
   def charVarcharAsString: Boolean = getConf(SQLConf.LEGACY_CHAR_VARCHAR_AS_STRING)
 
   def readSideCharPadding: Boolean = getConf(SQLConf.READ_SIDE_CHAR_PADDING)
+
+  def specificHiveFsLocation: String = getConf(SQLConf.HIVE_SPECIFIC_FS_LOCATION)
 
   def cliPrintHeader: Boolean = getConf(SQLConf.CLI_PRINT_HEADER)
 
