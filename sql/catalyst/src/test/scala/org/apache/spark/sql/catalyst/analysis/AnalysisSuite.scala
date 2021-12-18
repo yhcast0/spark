@@ -23,7 +23,7 @@ import scala.collection.JavaConverters._
 import scala.reflect.ClassTag
 import scala.reflect.runtime.universe.TypeTag
 
-import org.apache.log4j.Level
+import org.apache.logging.log4j.Level
 import org.scalatest.matchers.must.Matchers
 
 import org.apache.spark.api.python.PythonEvalType
@@ -849,8 +849,10 @@ class AnalysisSuite extends AnalysisTest with Matchers {
 
       def check(count: Int): Unit = {
         val message = "Two-parameter TRIM/LTRIM/RTRIM function signatures are deprecated."
-        assert(logAppender.loggingEvents.filter(e => e.getLevel == Level.WARN &&
-          e.getRenderedMessage.contains(message)).size == count)
+        assert(logAppender.loggingEvents.size == count)
+        assert(logAppender.loggingEvents.exists(
+          e => e.getLevel == Level.WARN &&
+            e.getMessage.getFormattedMessage.contains(message)))
       }
 
       withLogAppender(logAppender) {
