@@ -20,7 +20,7 @@ package org.apache.spark.util.collection
 import scala.collection.mutable.ArrayBuffer
 import scala.util.Random
 
-import org.junit.Ignore
+import org.scalatest.Ignore
 
 import org.apache.spark._
 import org.apache.spark.internal.config._
