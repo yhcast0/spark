@@ -100,7 +100,7 @@ class CryptoStreamUtilsSuite extends SparkFunSuite {
     assert(decryptedStr === plainStr)
   }
 
-  test("encryption key propagation to executors") {
+  ignore("encryption key propagation to executors") {
     val conf = createConf().setAppName("Crypto Test").setMaster("local-cluster[1,1,1024]")
     val sc = new SparkContext(conf)
     try {
