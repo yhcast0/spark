@@ -74,11 +74,11 @@ class EventLoggingListenerSuite extends SparkFunSuite with LocalSparkContext wit
     }
   }
 
-  test("End-to-end event logging") {
+  ignore("End-to-end event logging") {
     testApplicationEventLogging()
   }
 
-  test("End-to-end event logging with compression") {
+  ignore("End-to-end event logging with compression") {
     CompressionCodec.ALL_COMPRESSION_CODECS.foreach { codec =>
       testApplicationEventLogging(compressionCodec = Some(CompressionCodec.getShortName(codec)))
     }
