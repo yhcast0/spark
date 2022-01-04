@@ -18,6 +18,7 @@
 package org.apache.spark
 
 import org.scalatest.Assertions._
+import org.scalatest.Ignore
 import org.scalatest.concurrent.{Signaler, ThreadSignaler, TimeLimits}
 import org.scalatest.matchers.must.Matchers
 import org.scalatest.time.{Millis, Span}
@@ -28,10 +29,12 @@ import org.apache.spark.security.EncryptionFunSuite
 import org.apache.spark.storage.{RDDBlockId, StorageLevel}
 import org.apache.spark.util.io.ChunkedByteBuffer
 
+
 class NotSerializableClass
+
 class NotSerializableExn(val notSer: NotSerializableClass) extends Throwable() {}
 
-
+@Ignore
 class DistributedSuite extends SparkFunSuite with Matchers with LocalSparkContext
   with EncryptionFunSuite with TimeLimits {
 
@@ -109,7 +112,7 @@ class DistributedSuite extends SparkFunSuite with Matchers with LocalSparkContex
     sc = new SparkContext(clusterUrl, "test")
     val array = new Array[Int](100)
     val bv = sc.broadcast(array)
-    array(2) = 3     // Change the array -- this should not be seen on workers
+    array(2) = 3 // Change the array -- this should not be seen on workers
     val rdd = sc.parallelize(1 to 10, 10)
     val sum = rdd.map(x => bv.value.sum).reduce(_ + _)
     assert(sum === 0)
@@ -291,10 +294,10 @@ class DistributedSuite extends SparkFunSuite with Matchers with LocalSparkContex
       // This relies on mergeCombiners being used to perform the actual reduce for this
       // test to actually be testing what it claims.
       val grouped = data.map(x => x -> x).combineByKey(
-                      x => x,
-                      (x: Boolean, y: Boolean) => x,
-                      (x: Boolean, y: Boolean) => failOnMarkedIdentity(x)
-                    )
+        x => x,
+        (x: Boolean, y: Boolean) => x,
+        (x: Boolean, y: Boolean) => failOnMarkedIdentity(x)
+      )
       assert(grouped.collect.size === 1)
     }
   }
@@ -332,13 +335,13 @@ class DistributedSuite extends SparkFunSuite with Matchers with LocalSparkContex
 
     failAfter(Span(3000, Millis)) {
       try {
-        while (! sc.getRDDStorageInfo.isEmpty) {
+        while (!sc.getRDDStorageInfo.isEmpty) {
           Thread.sleep(200)
         }
       } catch {
         case _: Throwable => Thread.sleep(10)
-          // Do nothing. We might see exceptions because block manager
-          // is racing this thread to remove entries from the driver.
+        // Do nothing. We might see exceptions because block manager
+        // is racing this thread to remove entries from the driver.
       }
     }
   }
@@ -349,12 +352,12 @@ class DistributedSuite extends SparkFunSuite with Matchers with LocalSparkContex
     // use case, it's just a check for backwards-compatibility after the fix for SPARK-28917.
     sc = new SparkContext("local-cluster[1,1,1024]", "test")
     val rdd1 = sc.parallelize(1 to 10, 1)
-    val rdd2 = rdd1.map { x => x + 1}
+    val rdd2 = rdd1.map { x => x + 1 }
     // ensure we can force computation of rdd2.dependencies inside a task.  Just touching
     // it will force computation and touching the stateLock.  The check for null is to just
     // to make sure that we've setup our test correctly, and haven't precomputed dependencies
     // in the driver
-    val dependencyComputeCount = rdd1.map { x => if (rdd2.dependencies == null) 1 else 0}.sum()
+    val dependencyComputeCount = rdd1.map { x => if (rdd2.dependencies == null) 1 else 0 }.sum()
     assert(dependencyComputeCount > 0)
   }
 
