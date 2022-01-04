@@ -2163,7 +2163,7 @@ class TaskSetManagerSuite
     assert(sched.taskSetsFailed.contains(taskSet.id))
   }
 
-  test("SPARK-30359: don't clean executorsPendingToRemove " +
+  ignore("SPARK-30359: don't clean executorsPendingToRemove " +
     "at the beginning of CoarseGrainedSchedulerBackend.reset") {
     val conf = new SparkConf()
       // use local-cluster mode in order to get CoarseGrainedSchedulerBackend

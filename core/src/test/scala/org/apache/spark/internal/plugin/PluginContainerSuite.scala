@@ -164,7 +164,7 @@ class PluginContainerSuite extends SparkFunSuite with BeforeAndAfterEach with Lo
     }
   }
 
-  test("plugin initialization in non-local mode") {
+  ignore("plugin initialization in non-local mode") {
     val path = Utils.createTempDir()
 
     val conf = new SparkConf()
@@ -183,7 +183,7 @@ class PluginContainerSuite extends SparkFunSuite with BeforeAndAfterEach with Lo
     }
   }
 
-  test("plugin initialization in non-local mode with resources") {
+  ignore("plugin initialization in non-local mode with resources") {
     withTempDir { dir =>
       val scriptPath = createTempScriptWithExpectedOutput(dir, "gpuDiscoveryScript",
         """{"name": "gpu","addresses":["5", "6"]}""")
