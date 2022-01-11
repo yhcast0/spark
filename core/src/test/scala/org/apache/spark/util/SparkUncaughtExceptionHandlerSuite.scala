@@ -21,8 +21,12 @@ import java.io.File
 
 import scala.util.Try
 
+import org.scalatest.Ignore
+
 import org.apache.spark.SparkFunSuite
 
+
+@Ignore
 class SparkUncaughtExceptionHandlerSuite extends SparkFunSuite {
 
   private val sparkHome =

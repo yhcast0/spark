@@ -21,6 +21,7 @@ import java.util.concurrent.TimeUnit
 
 import scala.concurrent.duration._
 
+import org.scalatest.Ignore
 import org.scalatest.concurrent.Eventually._
 import org.scalatest.matchers.must.Matchers
 import org.scalatest.matchers.should.Matchers._
@@ -29,6 +30,7 @@ import org.apache.spark._
 import org.apache.spark.internal.config.UI.UI_ENABLED
 import org.apache.spark.util.Utils
 
+@Ignore
 class LauncherBackendSuite extends SparkFunSuite with Matchers {
 
   private val tests = Seq(
