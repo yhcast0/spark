@@ -614,7 +614,7 @@ class SparkSubmitSuite
     }
   }
 
-  test("launch simple application with spark-submit") {
+  ignore("launch simple application with spark-submit") {
     val unusedJar = TestUtils.createJarWithClasses(Seq.empty)
     val args = Seq(
       "--class", SimpleApplicationTest.getClass.getName.stripSuffix("$"),
@@ -626,7 +626,7 @@ class SparkSubmitSuite
     runSparkSubmit(args)
   }
 
-  test("launch simple application with spark-submit with redaction") {
+  ignore("launch simple application with spark-submit with redaction") {
     val unusedJar = TestUtils.createJarWithClasses(Seq.empty)
     val fileSystem = Utils.getHadoopFileSystem("/",
       SparkHadoopUtil.get.newConfiguration(new SparkConf()))
@@ -653,7 +653,7 @@ class SparkSubmitSuite
     }
   }
 
-  test("includes jars passed in through --jars") {
+  ignore("includes jars passed in through --jars") {
     val unusedJar = TestUtils.createJarWithClasses(Seq.empty)
     val jar1 = TestUtils.createJarWithClasses(Seq("SparkSubmitClassA"))
     val jar2 = TestUtils.createJarWithClasses(Seq("SparkSubmitClassB"))
@@ -670,7 +670,7 @@ class SparkSubmitSuite
   }
 
   // SPARK-7287
-  test("includes jars passed in through --packages") {
+  ignore("includes jars passed in through --packages") {
     val unusedJar = TestUtils.createJarWithClasses(Seq.empty)
     val main = MavenCoordinate("my.great.lib", "mylib", "0.1")
     val dep = MavenCoordinate("my.great.dep", "mylib", "0.1")
@@ -690,7 +690,7 @@ class SparkSubmitSuite
     }
   }
 
-  test("includes jars passed through spark.jars.packages and spark.jars.repositories") {
+  ignore("includes jars passed through spark.jars.packages and spark.jars.repositories") {
     val unusedJar = TestUtils.createJarWithClasses(Seq.empty)
     val main = MavenCoordinate("my.great.lib", "mylib", "0.1")
     val dep = MavenCoordinate("my.great.dep", "mylib", "0.1")
@@ -930,7 +930,7 @@ class SparkSubmitSuite
     }
   }
 
-  test("user classpath first in driver") {
+  ignore("user classpath first in driver") {
     val systemJar = TestUtils.createJarWithFiles(Map("test.resource" -> "SYSTEM"))
     val userJar = TestUtils.createJarWithFiles(Map("test.resource" -> "USER"))
     val args = Seq(
@@ -1242,7 +1242,7 @@ class SparkSubmitSuite
     testRemoteResources(enableHttpFs = true, forceDownloadSchemes = Seq("*"))
   }
 
-  test("SPARK-32119: Jars and files should be loaded when Executors launch for plugins") {
+  ignore("SPARK-32119: Jars and files should be loaded when Executors launch for plugins") {
     val tempDir = Utils.createTempDir()
     val tempFileName = "test.txt"
     val tempFile = new File(tempDir, tempFileName)
