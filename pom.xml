@@ -139,6 +139,7 @@
     <parquet.version>1.12.2-kylin-r1</parquet.version>
     <orc.version>1.5.12</orc.version>
     <jetty.version>9.4.34.v20201102</jetty.version>
+    <mortbay.jetty.version>7.0.0.pre5</mortbay.jetty.version>
     <jakartaservlet.version>4.0.3</jakartaservlet.version>
     <chill.version>0.9.5</chill.version>
     <ivy.version>2.4.0</ivy.version>
@@ -452,6 +453,26 @@
         <version>${jetty.version}</version>
         <scope>provided</scope>
       </dependency>
+
+      <!-- import from hadoop project 2.7.4 -->
+      <dependency>
+        <groupId>org.mortbay.jetty</groupId>
+        <artifactId>jetty</artifactId>
+        <version>${mortbay.jetty.version}</version>
+        <exclusions>
+          <exclusion>
+            <groupId>org.mortbay.jetty</groupId>
+            <artifactId>servlet-api</artifactId>
+          </exclusion>
+        </exclusions>
+      </dependency>
+      <dependency>
+        <groupId>org.mortbay.jetty</groupId>
+        <artifactId>jetty-util</artifactId>
+        <version>${mortbay.jetty.version}</version>
+      </dependency>
+      <!-- import from hadoop project 2.7.4 end -->
+
       <dependency>
         <groupId>com.google.guava</groupId>
         <artifactId>guava</artifactId>
