@@ -110,11 +110,11 @@
       <artifactId>slf4j-api</artifactId>
       <scope>provided</scope>
     </dependency>
-    <dependency>
+    <!--<dependency>
       <groupId>org.slf4j</groupId>
       <artifactId>slf4j-log4j12</artifactId>
       <scope>provided</scope>
-    </dependency>
+    </dependency>-->
     <dependency>
       <groupId>org.xerial.snappy</groupId>
       <artifactId>snappy-java</artifactId>
