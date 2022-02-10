@@ -37,6 +37,7 @@ MAKE_PIP=false
 MAKE_R=false
 NAME=none
 MVN="$SPARK_HOME/build/mvn"
+MVN_PHASE=package
 
 function exit_with_usage {
   set +x
@@ -72,6 +73,10 @@ while (( "$#" )); do
       ;;
     --help)
       exit_with_usage
+      ;;
+    --mvn-phase)
+      MVN_PHASE="$2"
+      shift
       ;;
     --*)
       echo "Error: $1 is not supported"
@@ -166,7 +171,7 @@ export MAVEN_OPTS="${MAVEN_OPTS:--Xmx2g -XX:ReservedCodeCacheSize=1g}"
 # Store the command as an array because $MVN variable might have spaces in it.
 # Normal quoting tricks don't work.
 # See: http://mywiki.wooledge.org/BashFAQ/050
-BUILD_COMMAND=("$MVN" clean package -DskipTests $@)
+BUILD_COMMAND=("$MVN" clean "${MVN_PHASE}" -DskipTests $@)
 
 # Actually build the jar
 echo -e "\nBuilding with..."
