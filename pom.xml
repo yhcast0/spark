@@ -2522,6 +2522,9 @@
               <goals>
                 <goal>testCompile</goal>
               </goals>
+              <configuration>
+                <skip>${skipScalaTestCompile}</skip>
+              </configuration>
             </execution>
             <execution>
               <id>attach-scaladocs</id>
@@ -2529,6 +2532,9 @@
               <goals>
                 <goal>doc-jar</goal>
               </goals>
+              <configuration>
+                <skip>${skipAttachScaladocs}</skip>
+              </configuration>
             </execution>
           </executions>
           <configuration>
@@ -2780,6 +2786,7 @@
                 <placement>X</placement>
               </tag>
             </tags>
+            <skip>${skipJavaDoc}</skip>
           </configuration>
         </plugin>
         <plugin>
@@ -2836,7 +2843,6 @@
                 <!-- This includes dependencies with 'runtime' and 'compile' scopes;
                      see the docs for includeScope for more details -->
                 <includeScope>runtime</includeScope>
-                <skip>${skipCli}</skip>
               </configuration>
             </execution>
           </executions>
@@ -2911,6 +2917,7 @@
             <configuration>
               <includeScope>test</includeScope>
               <outputProperty>test_classpath</outputProperty>
+              <skip>${skipGenerateTestClasspath}</skip>
             </configuration>
           </execution>
           <execution>
@@ -3019,6 +3026,9 @@
             <goals>
               <goal>check</goal>
             </goals>
+            <configuration>
+              <skip>${skipScalaStyleCheck}</skip>
+            </configuration>
           </execution>
         </executions>
       </plugin>
