@@ -3211,6 +3211,18 @@
         <curator.version>2.7.1</curator.version>
         <commons-io.version>2.4</commons-io.version>
       </properties>
+      <dependencies>
+        <dependency>
+            <groupId>org.apache.directory.api</groupId>
+            <artifactId>api-util</artifactId>
+            <version>1.0.3</version>
+        </dependency>
+        <dependency>
+          <groupId>org.apache.directory.api</groupId>
+          <artifactId>api-asn1-api</artifactId>
+          <version>1.0.3</version>
+        </dependency>
+      </dependencies>
     </profile>
 
     <profile>
