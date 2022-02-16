@@ -27,7 +27,7 @@ import scala.util.{Properties, Try}
 import org.apache.spark.{SparkConf, SparkEnv}
 import org.apache.spark.serializer._
 import org.apache.spark.sql.Row
-import org.apache.spark.sql.catalyst.{CatalystTypeConverters, InternalRow, ScalaReflection}
+import org.apache.spark.sql.catalyst.{InternalRow, ScalaReflection}
 import org.apache.spark.sql.catalyst.encoders.RowEncoder
 import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.expressions.codegen._
@@ -127,13 +127,46 @@ trait InvokeLike extends Expression with NonSQLExpression {
       // return null if one of arguments is null
       null
     } else {
-      val ret = method.invoke(obj, args: _*)
+      val ret = try {
+        method.invoke(obj, args: _*)
+      } catch {
+        // Re-throw the original exception.
+        case e: java.lang.reflect.InvocationTargetException => throw e.getCause
+      }
       val boxedClass = ScalaReflection.typeBoxedJavaMapping.get(dataType)
       if (boxedClass.isDefined) {
         boxedClass.get.cast(ret)
       } else {
         ret
       }
+    }
+  }
+
+  final def findMethod(cls: Class[_], functionName: String, argClasses: Seq[Class[_]]): Method = {
+    // Looking with function name + argument classes first.
+    try {
+      cls.getMethod(functionName, argClasses: _*)
+    } catch {
+      case _: NoSuchMethodException =>
+        // For some cases, e.g. arg class is Object, `getMethod` cannot find the method.
+        // We look at function name + argument length
+        val m = cls.getMethods.filter { m =>
+          m.getName == functionName && m.getParameterCount == arguments.length
+        }
+        if (m.isEmpty) {
+          sys.error(s"Couldn't find $functionName on $cls")
+        } else if (m.length > 1) {
+          // More than one matched method signature. Exclude synthetic one, e.g. generic one.
+          val realMethods = m.filter(!_.isSynthetic)
+          if (realMethods.length > 1) {
+            // Ambiguous case, we don't know which method to choose, just fail it.
+            sys.error(s"Found ${realMethods.length} $functionName on $cls")
+          } else {
+            realMethods.head
+          }
+        } else {
+          m.head
+        }
     }
   }
 }
@@ -227,7 +260,7 @@ case class StaticInvoke(
   override def children: Seq[Expression] = arguments
 
   lazy val argClasses = ScalaReflection.expressionJavaClasses(arguments)
-  @transient lazy val method = cls.getDeclaredMethod(functionName, argClasses : _*)
+  @transient lazy val method = findMethod(cls, functionName, argClasses)
 
   override def eval(input: InternalRow): Any = {
     invoke(null, method, arguments, input, dataType)
@@ -314,12 +347,7 @@ case class Invoke(
 
   @transient lazy val method = targetObject.dataType match {
     case ObjectType(cls) =>
-      val m = cls.getMethods.find(_.getName == encodedFunctionName)
-      if (m.isEmpty) {
-        sys.error(s"Couldn't find $encodedFunctionName on $cls")
-      } else {
-        m
-      }
+      Some(findMethod(cls, encodedFunctionName, argClasses))
     case _ => None
   }
 
@@ -332,7 +360,7 @@ case class Invoke(
       val invokeMethod = if (method.isDefined) {
         method.get
       } else {
-        obj.getClass.getDeclaredMethod(functionName, argClasses: _*)
+        obj.getClass.getMethod(functionName, argClasses: _*)
       }
       invoke(obj, invokeMethod, arguments, input, dataType)
     }
@@ -443,7 +471,7 @@ case class NewInstance(
     // Note that static inner classes (e.g., inner classes within Scala objects) don't need
     // outer pointer registration.
     val needOuterPointer =
-      outerPointer.isEmpty && cls.isMemberClass && !Modifier.isStatic(cls.getModifiers)
+      outerPointer.isEmpty && Utils.isMemberClass(cls) && !Modifier.isStatic(cls.getModifiers)
     childrenResolved && !needOuterPointer
   }
 
@@ -489,7 +517,7 @@ case class NewInstance(
       // that might be defined on the companion object.
       case 0 => s"$className$$.MODULE$$.apply($argString)"
       case _ => outer.map { gen =>
-        s"${gen.value}.new ${cls.getSimpleName}($argString)"
+        s"${gen.value}.new ${Utils.getSimpleName(cls)}($argString)"
       }.getOrElse {
         s"new $className($argString)"
       }
@@ -1090,11 +1118,6 @@ case class CatalystToExternalMap private(
 
   private lazy val inputMapType = inputData.dataType.asInstanceOf[MapType]
 
-  private lazy val keyConverter =
-    CatalystTypeConverters.createToScalaConverter(inputMapType.keyType)
-  private lazy val valueConverter =
-    CatalystTypeConverters.createToScalaConverter(inputMapType.valueType)
-
   private lazy val (newMapBuilderMethod, moduleField) = {
     val clazz = Utils.classForName(collClass.getCanonicalName + "$")
     (clazz.getMethod("newBuilder"), clazz.getField("MODULE$").get(null))
@@ -1111,10 +1134,13 @@ case class CatalystToExternalMap private(
       builder.sizeHint(result.numElements())
       val keyArray = result.keyArray()
       val valueArray = result.valueArray()
+      val row = new GenericInternalRow(1)
       var i = 0
       while (i < result.numElements()) {
-        val key = keyConverter(keyArray.get(i, inputMapType.keyType))
-        val value = valueConverter(valueArray.get(i, inputMapType.valueType))
+        row.update(0, keyArray.get(i, inputMapType.keyType))
+        val key = keyLambdaFunction.eval(row)
+        row.update(0, valueArray.get(i, inputMapType.valueType))
+        val value = valueLambdaFunction.eval(row)
         builder += Tuple2(key, value)
         i += 1
       }

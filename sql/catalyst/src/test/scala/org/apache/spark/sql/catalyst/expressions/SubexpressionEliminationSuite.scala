@@ -17,10 +17,11 @@
 package org.apache.spark.sql.catalyst.expressions
 
 import org.apache.spark.SparkFunSuite
-import org.apache.spark.sql.catalyst.expressions.codegen.CodegenFallback
-import org.apache.spark.sql.types.{DataType, IntegerType}
+import org.apache.spark.sql.catalyst.expressions.codegen._
+import org.apache.spark.sql.internal.SQLConf
+import org.apache.spark.sql.types.{BinaryType, DataType, Decimal, IntegerType}
 
-class SubexpressionEliminationSuite extends SparkFunSuite {
+class SubexpressionEliminationSuite extends SparkFunSuite with ExpressionEvalHelper {
   test("Semantic equals and hash") {
     val a: AttributeReference = AttributeReference("name", IntegerType)()
     val id = {
@@ -208,7 +209,7 @@ class SubexpressionEliminationSuite extends SparkFunSuite {
       (GreaterThan(add2, Literal(4)), add1) ::
       (GreaterThan(add2, Literal(5)), add1) :: Nil
 
-    val caseWhenExpr2 = CaseWhen(conditions2, None)
+    val caseWhenExpr2 = CaseWhen(conditions2, add1)
     val equivalence2 = new EquivalentExpressions
     equivalence2.addExprTree(caseWhenExpr2)
 
@@ -252,6 +253,90 @@ class SubexpressionEliminationSuite extends SparkFunSuite {
     equivalence2.addExprTree(coalesceExpr2)
 
     assert(equivalence2.getAllEquivalentExprs.count(_.size == 2) == 0)
+  }
+
+  test("SPARK-34723: Correct parameter type for subexpression elimination under whole-stage") {
+    withSQLConf(SQLConf.CODEGEN_METHOD_SPLIT_THRESHOLD.key -> "1") {
+      val str = BoundReference(0, BinaryType, false)
+      val pos = BoundReference(1, IntegerType, false)
+
+      val substr = new Substring(str, pos)
+
+      val add = Add(Length(substr), Literal(1))
+      val add2 = Add(Length(substr), Literal(2))
+
+      val ctx = new CodegenContext()
+      val exprs = Seq(add, add2)
+
+      val oneVar = ctx.freshVariable("str", BinaryType)
+      val twoVar = ctx.freshVariable("pos", IntegerType)
+      ctx.addMutableState("byte[]", oneVar, forceInline = true, useFreshName = false)
+      ctx.addMutableState("int", twoVar, useFreshName = false)
+
+      ctx.INPUT_ROW = null
+      ctx.currentVars = Seq(
+        ExprCode(TrueLiteral, oneVar),
+        ExprCode(TrueLiteral, twoVar))
+
+      val subExprs = ctx.subexpressionEliminationForWholeStageCodegen(exprs)
+      ctx.withSubExprEliminationExprs(subExprs.states) {
+        exprs.map(_.genCode(ctx))
+      }
+      val subExprsCode = subExprs.codes.mkString("\n")
+
+      val codeBody = s"""
+        public java.lang.Object generate(Object[] references) {
+          return new TestCode(references);
+        }
+
+        class TestCode {
+          ${ctx.declareMutableStates()}
+
+          public TestCode(Object[] references) {
+          }
+
+          public void initialize(int partitionIndex) {
+            ${subExprsCode}
+          }
+
+          ${ctx.declareAddedFunctions()}
+        }
+      """
+
+      val code = CodeFormatter.stripOverlappingComments(
+        new CodeAndComment(codeBody, ctx.getPlaceHolderToComments()))
+
+      CodeGenerator.compile(code)
+    }
+  }
+
+  test("SPARK-35499: Subexpressions should only be extracted from CaseWhen values with an "
+    + "elseValue") {
+    val add1 = Add(Literal(1), Literal(2))
+    val add2 = Add(Literal(2), Literal(3))
+    val conditions = (GreaterThan(add1, Literal(3)), add1) ::
+      (GreaterThan(add2, Literal(4)), add1) ::
+      (GreaterThan(add2, Literal(5)), add1) :: Nil
+
+    val caseWhenExpr = CaseWhen(conditions, None)
+    val equivalence = new EquivalentExpressions
+    equivalence.addExprTree(caseWhenExpr)
+
+    // `add1` is not in the elseValue, so we can't extract it from the branches
+    assert(equivalence.getAllEquivalentExprs.count(_.size == 2) == 0)
+  }
+
+  test("SPARK-35886: PromotePrecision should not overwrite genCode") {
+    val p = PromotePrecision(Literal(Decimal("10.1")))
+
+    val ctx = new CodegenContext()
+    val subExprs = ctx.subexpressionEliminationForWholeStageCodegen(Seq(p, p))
+    val code = ctx.withSubExprEliminationExprs(subExprs.states) {
+      Seq(p.genCode(ctx))
+    }.head
+    // Decimal `Literal` will add the value by `addReferenceObj`.
+    // So if `p` is replaced by subexpression, the literal will be reused.
+    assert(code.value.toString == "((Decimal) references[0] /* literal */)")
   }
 }
 

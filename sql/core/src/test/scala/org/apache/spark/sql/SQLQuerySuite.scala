@@ -32,11 +32,13 @@ import org.apache.spark.sql.catalyst.util.StringUtils
 import org.apache.spark.sql.execution.adaptive.AdaptiveSparkPlanHelper
 import org.apache.spark.sql.execution.aggregate.{HashAggregateExec, ObjectHashAggregateExec, SortAggregateExec}
 import org.apache.spark.sql.execution.columnar.InMemoryTableScanExec
-import org.apache.spark.sql.execution.command.FunctionsCommand
+import org.apache.spark.sql.execution.command.{DataWritingCommandExec, FunctionsCommand}
+import org.apache.spark.sql.execution.datasources.InsertIntoHadoopFsRelationCommand
 import org.apache.spark.sql.execution.datasources.SchemaColumnConvertNotSupportedException
 import org.apache.spark.sql.execution.datasources.v2.BatchScanExec
 import org.apache.spark.sql.execution.datasources.v2.orc.OrcScan
 import org.apache.spark.sql.execution.datasources.v2.parquet.ParquetScan
+import org.apache.spark.sql.execution.exchange.ReusedExchangeExec
 import org.apache.spark.sql.execution.joins.{BroadcastHashJoinExec, CartesianProductExec, SortMergeJoinExec}
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.internal.SQLConf
@@ -3458,6 +3460,19 @@ class SQLQuerySuite extends QueryTest with SharedSparkSession with AdaptiveSpark
     }
   }
 
+  test("SPARK-36339: References to grouping attributes should be replaced") {
+    withTempView("t") {
+      Seq("a", "a", "b").toDF("x").createOrReplaceTempView("t")
+      checkAnswer(
+        sql(
+          """
+            |select count(x) c, x from t
+            |group by x grouping sets(x)
+          """.stripMargin),
+        Seq(Row(2, "a"), Row(1, "b")))
+    }
+  }
+
   test("SPARK-31166: UNION map<null, null> and other maps should not fail") {
     checkAnswer(
       sql("(SELECT map()) UNION ALL (SELECT map(1, 2))"),
@@ -3596,6 +3611,9 @@ class SQLQuerySuite extends QueryTest with SharedSparkSession with AdaptiveSpark
         Row("A", null, 5) :: Row("A", "{\"i\": 1}", 3) :: Row("A", "{\"i\": 2}", 2) ::
           Row("B", null, 1) :: Row("B", "{\"i\": 1}", 1) ::
           Row("C", null, 3) :: Row("C", "{\"i\": 1}", 3) :: Nil)
+
+      assert(spark.table("t").groupBy($"c.json_string").count().schema.fieldNames ===
+        Seq("json_string", "count"))
     }
   }
 
@@ -3923,6 +3941,80 @@ class SQLQuerySuite extends QueryTest with SharedSparkSession with AdaptiveSpark
         }
         assert(e2.message.contains("Not allowed to create a permanent view " +
           s"`default`.`$testViewName` by referencing a temporary function `$tempFuncName`"))
+      }
+    }
+  }
+
+  test("SPARK-34796: Avoid code-gen compilation error for LIMIT query") {
+    withTable("left_table", "empty_right_table", "output_table") {
+      spark.range(5).toDF("k").write.saveAsTable("left_table")
+      spark.range(0).toDF("k").write.saveAsTable("empty_right_table")
+
+      withSQLConf(SQLConf.ADAPTIVE_EXECUTION_ENABLED.key -> "false") {
+        spark.sql("CREATE TABLE output_table (k INT) USING parquet")
+        spark.sql(
+          """
+            |INSERT INTO TABLE output_table
+            |SELECT t1.k FROM left_table t1
+            |JOIN empty_right_table t2
+            |ON t1.k = t2.k
+            |LIMIT 3
+          """.stripMargin)
+      }
+    }
+  }
+
+  test("SPARK-33482: Fix FileScan canonicalization") {
+    withSQLConf(SQLConf.USE_V1_SOURCE_LIST.key -> "") {
+      withTempPath { path =>
+        spark.range(5).toDF().write.mode("overwrite").parquet(path.toString)
+        withTempView("t") {
+          spark.read.parquet(path.toString).createOrReplaceTempView("t")
+          val df = sql(
+            """
+              |SELECT *
+              |FROM t AS t1
+              |JOIN t AS t2 ON t2.id = t1.id
+              |JOIN t AS t3 ON t3.id = t2.id
+              |""".stripMargin)
+          df.collect()
+          val reusedExchanges = collect(df.queryExecution.executedPlan) {
+            case r: ReusedExchangeExec => r
+          }
+          assert(reusedExchanges.size == 1)
+        }
+      }
+    }
+  }
+
+  test("SPARK-36093: RemoveRedundantAliases should not change expression's name") {
+    withTable("t1", "t2") {
+      withView("t1_v") {
+        sql("CREATE TABLE t1(cal_dt DATE) USING PARQUET")
+        sql(
+          """
+            |INSERT INTO t1 VALUES
+            |(date'2021-06-27'),
+            |(date'2021-06-28'),
+            |(date'2021-06-29'),
+            |(date'2021-06-30')""".stripMargin)
+        sql("CREATE VIEW t1_v AS SELECT * FROM t1")
+        sql(
+          """
+            |CREATE TABLE t2(FLAG INT, CAL_DT DATE)
+            |USING PARQUET
+            |PARTITIONED BY (CAL_DT)""".stripMargin)
+        val insert = sql(
+          """
+            |INSERT INTO t2 SELECT 2 AS FLAG,CAL_DT FROM t1_v
+            |WHERE CAL_DT BETWEEN '2021-06-29' AND '2021-06-30'""".stripMargin)
+        insert.queryExecution.executedPlan.collectFirst {
+          case DataWritingCommandExec(i: InsertIntoHadoopFsRelationCommand, _) => i
+        }.get.partitionColumns.map(_.name).foreach(name => assert(name == "CAL_DT"))
+        checkAnswer(sql("SELECT FLAG, CAST(CAL_DT as STRING) FROM t2 "),
+          Row(2, "2021-06-29") :: Row(2, "2021-06-30") :: Nil)
+        checkAnswer(sql("SHOW PARTITIONS t2"),
+          Row("CAL_DT=2021-06-29") :: Row("CAL_DT=2021-06-30") :: Nil)
       }
     }
   }

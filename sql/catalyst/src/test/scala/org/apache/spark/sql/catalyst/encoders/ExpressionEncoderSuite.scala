@@ -114,6 +114,7 @@ case class ReferenceValueClass(wrapped: ReferenceValueClass.Container) extends A
 object ReferenceValueClass {
   case class Container(data: Int)
 }
+case class IntAndString(i: Int, s: String)
 
 class ExpressionEncoderSuite extends CodegenInterpretedPlanTest with AnalysisTest {
   OuterScopes.addOuterScope(this)
@@ -174,6 +175,10 @@ class ExpressionEncoderSuite extends CodegenInterpretedPlanTest with AnalysisTes
   encodeDecodeTest(Map(1 -> "a", 2 -> "b"), "map")
   encodeDecodeTest(Map(1 -> "a", 2 -> null), "map with null")
   encodeDecodeTest(Map(1 -> Map("a" -> 1), 2 -> Map("b" -> 2)), "map of map")
+  encodeDecodeTest(Map(1 -> IntAndString(1, "a")), "map with case class as value")
+  encodeDecodeTest(Map(IntAndString(1, "a") -> 1), "map with case class as key")
+  encodeDecodeTest(Map(IntAndString(1, "a") -> IntAndString(2, "b")),
+    "map with case class as key and value")
 
   encodeDecodeTest(Tuple1[Seq[Int]](null), "null seq in tuple")
   encodeDecodeTest(Tuple1[Map[String, String]](null), "null map in tuple")
@@ -204,6 +209,88 @@ class ExpressionEncoderSuite extends CodegenInterpretedPlanTest with AnalysisTes
   encodeDecodeTest(Array(InnerClass(1)), "array of inner class")
 
   encodeDecodeTest(Array(Option(InnerClass(1))), "array of optional inner class")
+
+  // holder class to trigger Class.getSimpleName issue
+  object MalformedClassObject extends Serializable {
+    case class MalformedNameExample(x: Int)
+  }
+
+  {
+    OuterScopes.addOuterScope(MalformedClassObject)
+    encodeDecodeTest(
+      MalformedClassObject.MalformedNameExample(42),
+      "nested Scala class should work")
+  }
+
+  object OuterLevelWithVeryVeryVeryLongClassName1 {
+    object OuterLevelWithVeryVeryVeryLongClassName2 {
+      object OuterLevelWithVeryVeryVeryLongClassName3 {
+        object OuterLevelWithVeryVeryVeryLongClassName4 {
+          object OuterLevelWithVeryVeryVeryLongClassName5 {
+            object OuterLevelWithVeryVeryVeryLongClassName6 {
+              object OuterLevelWithVeryVeryVeryLongClassName7 {
+                object OuterLevelWithVeryVeryVeryLongClassName8 {
+                  object OuterLevelWithVeryVeryVeryLongClassName9 {
+                    object OuterLevelWithVeryVeryVeryLongClassName10 {
+                      object OuterLevelWithVeryVeryVeryLongClassName11 {
+                        object OuterLevelWithVeryVeryVeryLongClassName12 {
+                          object OuterLevelWithVeryVeryVeryLongClassName13 {
+                            object OuterLevelWithVeryVeryVeryLongClassName14 {
+                              object OuterLevelWithVeryVeryVeryLongClassName15 {
+                                object OuterLevelWithVeryVeryVeryLongClassName16 {
+                                  object OuterLevelWithVeryVeryVeryLongClassName17 {
+                                    object OuterLevelWithVeryVeryVeryLongClassName18 {
+                                      object OuterLevelWithVeryVeryVeryLongClassName19 {
+                                        object OuterLevelWithVeryVeryVeryLongClassName20 {
+                                          case class MalformedNameExample(x: Int)
+                                        }}}}}}}}}}}}}}}}}}}}
+
+  {
+    OuterScopes.addOuterScope(
+      OuterLevelWithVeryVeryVeryLongClassName1
+        .OuterLevelWithVeryVeryVeryLongClassName2
+        .OuterLevelWithVeryVeryVeryLongClassName3
+        .OuterLevelWithVeryVeryVeryLongClassName4
+        .OuterLevelWithVeryVeryVeryLongClassName5
+        .OuterLevelWithVeryVeryVeryLongClassName6
+        .OuterLevelWithVeryVeryVeryLongClassName7
+        .OuterLevelWithVeryVeryVeryLongClassName8
+        .OuterLevelWithVeryVeryVeryLongClassName9
+        .OuterLevelWithVeryVeryVeryLongClassName10
+        .OuterLevelWithVeryVeryVeryLongClassName11
+        .OuterLevelWithVeryVeryVeryLongClassName12
+        .OuterLevelWithVeryVeryVeryLongClassName13
+        .OuterLevelWithVeryVeryVeryLongClassName14
+        .OuterLevelWithVeryVeryVeryLongClassName15
+        .OuterLevelWithVeryVeryVeryLongClassName16
+        .OuterLevelWithVeryVeryVeryLongClassName17
+        .OuterLevelWithVeryVeryVeryLongClassName18
+        .OuterLevelWithVeryVeryVeryLongClassName19
+        .OuterLevelWithVeryVeryVeryLongClassName20)
+    encodeDecodeTest(
+      OuterLevelWithVeryVeryVeryLongClassName1
+        .OuterLevelWithVeryVeryVeryLongClassName2
+        .OuterLevelWithVeryVeryVeryLongClassName3
+        .OuterLevelWithVeryVeryVeryLongClassName4
+        .OuterLevelWithVeryVeryVeryLongClassName5
+        .OuterLevelWithVeryVeryVeryLongClassName6
+        .OuterLevelWithVeryVeryVeryLongClassName7
+        .OuterLevelWithVeryVeryVeryLongClassName8
+        .OuterLevelWithVeryVeryVeryLongClassName9
+        .OuterLevelWithVeryVeryVeryLongClassName10
+        .OuterLevelWithVeryVeryVeryLongClassName11
+        .OuterLevelWithVeryVeryVeryLongClassName12
+        .OuterLevelWithVeryVeryVeryLongClassName13
+        .OuterLevelWithVeryVeryVeryLongClassName14
+        .OuterLevelWithVeryVeryVeryLongClassName15
+        .OuterLevelWithVeryVeryVeryLongClassName16
+        .OuterLevelWithVeryVeryVeryLongClassName17
+        .OuterLevelWithVeryVeryVeryLongClassName18
+        .OuterLevelWithVeryVeryVeryLongClassName19
+        .OuterLevelWithVeryVeryVeryLongClassName20
+        .MalformedNameExample(42),
+      "deeply nested Scala class should work")
+  }
 
   productTest(PrimitiveData(1, 1, 1, 1, 1, 1, true))
 

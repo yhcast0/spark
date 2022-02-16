@@ -21,6 +21,7 @@ import java.io.File
 import java.net.URI
 
 import org.apache.log4j.Level
+import org.scalatest.PrivateMethodTester
 
 import org.apache.spark.scheduler.{SparkListener, SparkListenerEvent, SparkListenerJobStart}
 import org.apache.spark.sql.{Dataset, QueryTest, Row, SaveMode, SparkSession, Strategy}
@@ -45,7 +46,8 @@ import org.apache.spark.util.Utils
 class AdaptiveQueryExecSuite
   extends QueryTest
   with SharedSparkSession
-  with AdaptiveSparkPlanHelper {
+  with AdaptiveSparkPlanHelper
+  with PrivateMethodTester {
 
   import testImplicits._
 
@@ -869,6 +871,25 @@ class AdaptiveQueryExecSuite
     }
   }
 
+  test("SPARK-34682: CustomShuffleReaderExec operating on canonicalized plan") {
+    withSQLConf(SQLConf.ADAPTIVE_EXECUTION_ENABLED.key -> "true") {
+      val (_, adaptivePlan) = runAdaptiveAndVerifyResult(
+        "SELECT key FROM testData GROUP BY key")
+      val readers = collect(adaptivePlan) {
+        case r: CustomShuffleReaderExec => r
+      }
+      assert(readers.length == 1)
+      val reader = readers.head
+      val c = reader.canonicalized.asInstanceOf[CustomShuffleReaderExec]
+      // we can't just call execute() because that has separate checks for canonicalized plans
+      val ex = intercept[IllegalStateException] {
+        val doExecute = PrivateMethod[Unit](Symbol("doExecute"))
+        c.invokePrivate(doExecute())
+      }
+      assert(ex.getMessage === "operating on canonicalized plan")
+    }
+  }
+
   test("metrics of the shuffle reader") {
     withSQLConf(SQLConf.ADAPTIVE_EXECUTION_ENABLED.key -> "true") {
       val (_, adaptivePlan) = runAdaptiveAndVerifyResult(
@@ -1457,6 +1478,27 @@ class AdaptiveQueryExecSuite
           val blocksFetched2 = blocksFetchedMetric2.get.value
           assert(blocksFetched < blocksFetched2)
         }
+      }
+    }
+  }
+
+  test("SPARK-36020: Check logical link in remove redundant projects") {
+    withTempView("t") {
+      spark.range(10).selectExpr("id % 10 as key", "cast(id * 2 as int) as a",
+        "cast(id * 3 as int) as b", "array(id, id + 1, id + 3) as c").createOrReplaceTempView("t")
+      withSQLConf(SQLConf.ADAPTIVE_EXECUTION_ENABLED.key -> "true") {
+        val query =
+          """
+            |WITH tt AS (
+            | SELECT key, a, b, explode(c) AS c FROM t
+            |)
+            |SELECT t1.key, t1.c, t2.key, t2.c
+            |FROM (SELECT a, b, c, key FROM tt WHERE a > 1) t1
+            |JOIN (SELECT a, b, c, key FROM tt) t2
+            |  ON t1.key = t2.key
+            |""".stripMargin
+        // here we only need to make sure this query can run
+        runAdaptiveAndVerifyResult(query)
       }
     }
   }

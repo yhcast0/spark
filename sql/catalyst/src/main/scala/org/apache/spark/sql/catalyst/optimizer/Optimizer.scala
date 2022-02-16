@@ -30,6 +30,7 @@ import org.apache.spark.sql.catalyst.rules._
 import org.apache.spark.sql.connector.catalog.CatalogManager
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types._
+import org.apache.spark.sql.util.SchemaUtils._
 import org.apache.spark.util.Utils
 
 /**
@@ -44,10 +45,14 @@ abstract class Optimizer(catalogManager: CatalogManager)
   // - is still resolved
   // - only host special expressions in supported operators
   // - has globally-unique attribute IDs
-  override protected def isPlanIntegral(plan: LogicalPlan): Boolean = {
-    !Utils.isTesting || (plan.resolved &&
-      plan.find(PlanHelper.specialExpressionsInUnsupportedOperator(_).nonEmpty).isEmpty &&
-      LogicalPlanIntegrity.checkIfExprIdsAreGloballyUnique(plan))
+  // - optimized plan have same schema with previous plan.
+  override protected def isPlanIntegral(
+      previousPlan: LogicalPlan,
+      currentPlan: LogicalPlan): Boolean = {
+    !Utils.isTesting || (currentPlan.resolved &&
+      currentPlan.find(PlanHelper.specialExpressionsInUnsupportedOperator(_).nonEmpty).isEmpty &&
+      LogicalPlanIntegrity.checkIfExprIdsAreGloballyUnique(currentPlan) &&
+      DataType.equalsIgnoreNullability(previousPlan.schema, currentPlan.schema))
   }
 
   override protected val excludedOnceBatches: Set[String] =
@@ -446,7 +451,7 @@ object RemoveRedundantAliases extends Rule[LogicalPlan] {
           createAttributeMapping(left, newLeft) ++
           createAttributeMapping(right, newRight))
         val newCondition = condition.map(_.transform {
-          case a: Attribute => mapping.getOrElse(a, a)
+          case a: Attribute => mapping.get(a).map(_.withName(a.name)).getOrElse(a)
         })
         Join(newLeft, newRight, joinType, newCondition, hint)
 
@@ -476,7 +481,7 @@ object RemoveRedundantAliases extends Rule[LogicalPlan] {
         // Transform the expressions.
         newNode.mapExpressions { expr =>
           clean(expr.transform {
-            case a: Attribute => mapping.getOrElse(a, a)
+            case a: Attribute => mapping.get(a).map(_.withName(a.name)).getOrElse(a)
           })
         }
     }
@@ -491,7 +496,21 @@ object RemoveRedundantAliases extends Rule[LogicalPlan] {
 object RemoveNoopOperators extends Rule[LogicalPlan] {
   def apply(plan: LogicalPlan): LogicalPlan = plan transform {
     // Eliminate no-op Projects
-    case p @ Project(_, child) if child.sameOutput(p) => child
+    case p @ Project(projectList, child) if child.sameOutput(p) =>
+      val newChild = child match {
+        case p: Project =>
+          p.copy(projectList = restoreOriginalOutputNames(p.projectList, projectList.map(_.name)))
+        case agg: Aggregate =>
+          agg.copy(aggregateExpressions =
+            restoreOriginalOutputNames(agg.aggregateExpressions, projectList.map(_.name)))
+        case _ =>
+          child
+      }
+      if (newChild.output.zip(projectList).forall { case (a1, a2) => a1.name == a2.name }) {
+        newChild
+      } else {
+        p
+      }
 
     // Eliminate no-op Window
     case w: Window if w.windowExpressions.isEmpty => w.child
@@ -875,24 +894,30 @@ object TransposeWindow extends Rule[LogicalPlan] {
  * by this [[Generate]] can be removed earlier - before joins and in data sources.
  */
 object InferFiltersFromGenerate extends Rule[LogicalPlan] {
-  def apply(plan: LogicalPlan): LogicalPlan = plan transformUp {
-    // This rule does not infer filters from foldable expressions to avoid constant filters
-    // like 'size([1, 2, 3]) > 0'. These do not show up in child's constraints and
-    // then the idempotence will break.
-    case generate @ Generate(e, _, _, _, _, _)
-      if !e.deterministic || e.children.forall(_.foldable) => generate
-
+  def apply(plan: LogicalPlan): LogicalPlan = plan.transformUp {
     case generate @ Generate(g, _, false, _, _, _) if canInferFilters(g) =>
-      // Exclude child's constraints to guarantee idempotency
-      val inferredFilters = ExpressionSet(
-        Seq(
-          GreaterThan(Size(g.children.head), Literal(0)),
-          IsNotNull(g.children.head)
-        )
-      ) -- generate.child.constraints
+      assert(g.children.length == 1)
+      val input = g.children.head
+      // Generating extra predicates here has overheads/risks:
+      //   - We may evaluate expensive input expressions multiple times.
+      //   - We may infer too many constraints later.
+      //   - The input expression may fail to be evaluated under ANSI mode. If we reorder the
+      //     predicates and evaluate the input expression first, we may fail the query unexpectedly.
+      // To be safe, here we only generate extra predicates if the input is an attribute.
+      // Note that, foldable input is also excluded here, to avoid constant filters like
+      // 'size([1, 2, 3]) > 0'. These do not show up in child's constraints and then the
+      // idempotence will break.
+      if (input.isInstanceOf[Attribute]) {
+        // Exclude child's constraints to guarantee idempotency
+        val inferredFilters = ExpressionSet(
+          Seq(GreaterThan(Size(input), Literal(0)), IsNotNull(input))
+        ) -- generate.child.constraints
 
-      if (inferredFilters.nonEmpty) {
-        generate.copy(child = Filter(inferredFilters.reduce(And), generate.child))
+        if (inferredFilters.nonEmpty) {
+          generate.copy(child = Filter(inferredFilters.reduce(And), generate.child))
+        } else {
+          generate
+        }
       } else {
         generate
       }

@@ -787,9 +787,10 @@ abstract class TreeNode[BaseType <: TreeNode[BaseType]] extends Product {
         ("deserialized" -> s.deserialized) ~ ("replication" -> s.replication)
     case n: TreeNode[_] => n.jsonValue
     case o: Option[_] => o.map(parseToJson)
-    // Recursive scan Seq[TreeNode], Seq[Partitioning], Seq[DataType]
-    case t: Seq[_] if t.forall(_.isInstanceOf[TreeNode[_]]) ||
-      t.forall(_.isInstanceOf[Partitioning]) || t.forall(_.isInstanceOf[DataType]) =>
+    // Recursive scan Seq[Partitioning], Seq[DataType], Seq[Product]
+    case t: Seq[_] if t.forall(_.isInstanceOf[Partitioning]) ||
+      t.forall(_.isInstanceOf[DataType]) ||
+      t.forall(_.isInstanceOf[Product]) =>
       JArray(t.map(parseToJson).toList)
     case t: Seq[_] if t.length > 0 && t.head.isInstanceOf[String] =>
       JString(truncatedString(t, "[", ", ", "]", SQLConf.get.maxToStringFields))
@@ -802,7 +803,20 @@ abstract class TreeNode[BaseType <: TreeNode[BaseType]] extends Product {
     case p: Product if shouldConvertToJson(p) =>
       try {
         val fieldNames = getConstructorParameterNames(p.getClass)
-        val fieldValues = p.productIterator.toSeq
+        val fieldValues = {
+          if (p.productArity == fieldNames.length) {
+            p.productIterator.toSeq
+          } else {
+            val clazz = p.getClass
+            // Fallback to use reflection if length of product elements do not match
+            // constructor params.
+            fieldNames.map { fieldName =>
+              val field = clazz.getDeclaredField(fieldName)
+              field.setAccessible(true)
+              field.get(p)
+            }
+          }
+        }
         assert(fieldNames.length == fieldValues.length, s"$simpleClassName fields: " +
           fieldNames.mkString(", ") + s", values: " + fieldValues.mkString(", "))
         ("product-class" -> JString(p.getClass.getName)) :: fieldNames.zip(fieldValues).map {
@@ -810,6 +824,7 @@ abstract class TreeNode[BaseType <: TreeNode[BaseType]] extends Product {
         }.toList
       } catch {
         case _: RuntimeException => null
+        case _: ReflectiveOperationException => null
       }
     case _ => JNull
   }
@@ -827,6 +842,9 @@ abstract class TreeNode[BaseType <: TreeNode[BaseType]] extends Product {
     case broadcast: BroadcastMode => true
     case table: CatalogTableType => true
     case storage: CatalogStorageFormat => true
+    // Write out product that contains TreeNode, since there are some Tuples such as cteRelations
+    // in With, branches in CaseWhen which are essential to understand the plan.
+    case p if p.productIterator.exists(_.isInstanceOf[TreeNode[_]]) => true
     case _ => false
   }
 }

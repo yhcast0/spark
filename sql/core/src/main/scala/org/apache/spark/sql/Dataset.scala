@@ -20,7 +20,7 @@ package org.apache.spark.sql
 import java.io.{ByteArrayOutputStream, CharArrayWriter, DataOutputStream}
 
 import scala.collection.JavaConverters._
-import scala.collection.mutable.ArrayBuffer
+import scala.collection.mutable.{ArrayBuffer, HashSet}
 import scala.reflect.runtime.universe.TypeTag
 import scala.util.control.NonFatal
 
@@ -69,7 +69,7 @@ private[sql] object Dataset {
   val curId = new java.util.concurrent.atomic.AtomicLong()
   val DATASET_ID_KEY = "__dataset_id"
   val COL_POS_KEY = "__col_position"
-  val DATASET_ID_TAG = TreeNodeTag[Long]("dataset_id")
+  val DATASET_ID_TAG = TreeNodeTag[HashSet[Long]]("dataset_id")
 
   def apply[T: Encoder](sparkSession: SparkSession, logicalPlan: LogicalPlan): Dataset[T] = {
     val dataset = new Dataset(sparkSession, logicalPlan, implicitly[Encoder[T]])
@@ -231,9 +231,10 @@ class Dataset[T] private[sql](
       case _ =>
         queryExecution.analyzed
     }
-    if (sparkSession.sessionState.conf.getConf(SQLConf.FAIL_AMBIGUOUS_SELF_JOIN_ENABLED) &&
-        plan.getTagValue(Dataset.DATASET_ID_TAG).isEmpty) {
-      plan.setTagValue(Dataset.DATASET_ID_TAG, id)
+    if (sparkSession.sessionState.conf.getConf(SQLConf.FAIL_AMBIGUOUS_SELF_JOIN_ENABLED)) {
+      val dsIds = plan.getTagValue(Dataset.DATASET_ID_TAG).getOrElse(new HashSet[Long])
+      dsIds.add(id)
+      plan.setTagValue(Dataset.DATASET_ID_TAG, dsIds)
     }
     plan
   }
@@ -1041,6 +1042,30 @@ class Dataset[T] private[sql](
   def join(right: Dataset[_], joinExprs: Column): DataFrame = join(right, joinExprs, "inner")
 
   /**
+   * find the trivially true predicates and automatically resolves them to both sides.
+   */
+  private def resolveSelfJoinCondition(plan: Join): Join = {
+    val resolver = sparkSession.sessionState.analyzer.resolver
+    val cond = plan.condition.map { _.transform {
+      case catalyst.expressions.EqualTo(a: AttributeReference, b: AttributeReference)
+        if a.sameRef(b) =>
+        catalyst.expressions.EqualTo(
+          plan.left.resolveQuoted(a.name, resolver)
+            .getOrElse(throw resolveException(a.name, plan.left.schema.fieldNames)),
+          plan.right.resolveQuoted(b.name, resolver)
+            .getOrElse(throw resolveException(b.name, plan.right.schema.fieldNames)))
+      case catalyst.expressions.EqualNullSafe(a: AttributeReference, b: AttributeReference)
+        if a.sameRef(b) =>
+        catalyst.expressions.EqualNullSafe(
+          plan.left.resolveQuoted(a.name, resolver)
+            .getOrElse(throw resolveException(a.name, plan.left.schema.fieldNames)),
+          plan.right.resolveQuoted(b.name, resolver)
+            .getOrElse(throw resolveException(b.name, plan.right.schema.fieldNames)))
+    }}
+    plan.copy(condition = cond)
+  }
+
+  /**
    * Join with another `DataFrame`, using the given join expression. The following performs
    * a full outer join between `df1` and `df2`.
    *
@@ -1094,26 +1119,9 @@ class Dataset[T] private[sql](
     // Otherwise, find the trivially true predicates and automatically resolves them to both sides.
     // By the time we get here, since we have already run analysis, all attributes should've been
     // resolved and become AttributeReference.
-    val resolver = sparkSession.sessionState.analyzer.resolver
-    val cond = plan.condition.map { _.transform {
-      case catalyst.expressions.EqualTo(a: AttributeReference, b: AttributeReference)
-          if a.sameRef(b) =>
-        catalyst.expressions.EqualTo(
-          plan.left.resolveQuoted(a.name, resolver)
-            .getOrElse(throw resolveException(a.name, plan.left.schema.fieldNames)),
-          plan.right.resolveQuoted(b.name, resolver)
-            .getOrElse(throw resolveException(b.name, plan.right.schema.fieldNames)))
-      case catalyst.expressions.EqualNullSafe(a: AttributeReference, b: AttributeReference)
-        if a.sameRef(b) =>
-        catalyst.expressions.EqualNullSafe(
-          plan.left.resolveQuoted(a.name, resolver)
-            .getOrElse(throw resolveException(a.name, plan.left.schema.fieldNames)),
-          plan.right.resolveQuoted(b.name, resolver)
-            .getOrElse(throw resolveException(b.name, plan.right.schema.fieldNames)))
-    }}
 
     withPlan {
-      plan.copy(condition = cond)
+      resolveSelfJoinCondition(plan)
     }
   }
 
@@ -1155,7 +1163,7 @@ class Dataset[T] private[sql](
   def joinWith[U](other: Dataset[U], condition: Column, joinType: String): Dataset[(T, U)] = {
     // Creates a Join node and resolve it first, to get join condition resolved, self-join resolved,
     // etc.
-    val joined = sparkSession.sessionState.executePlan(
+    var joined = sparkSession.sessionState.executePlan(
       Join(
         this.logicalPlan,
         other.logicalPlan,
@@ -1165,6 +1173,11 @@ class Dataset[T] private[sql](
 
     if (joined.joinType == LeftSemi || joined.joinType == LeftAnti) {
       throw new AnalysisException("Invalid join type in joinWith: " + joined.joinType.sql)
+    }
+
+    // If auto self join alias is enable
+    if (sqlContext.conf.dataFrameSelfJoinAutoResolveAmbiguity) {
+      joined = resolveSelfJoinCondition(joined)
     }
 
     implicit val tuple2Encoder: Encoder[(T, U)] =
@@ -2413,10 +2426,10 @@ class Dataset[T] private[sql](
     val resolver = sparkSession.sessionState.analyzer.resolver
     val output = queryExecution.analyzed.output
 
-    val columnMap = colNames.zip(cols).toMap
+    val columnSeq = colNames.zip(cols)
 
     val replacedAndExistingColumns = output.map { field =>
-      columnMap.find { case (colName, _) =>
+      columnSeq.find { case (colName, _) =>
         resolver(field.name, colName)
       } match {
         case Some((colName: String, col: Column)) => col.as(colName)
@@ -2424,7 +2437,7 @@ class Dataset[T] private[sql](
       }
     }
 
-    val newColumns = columnMap.filter { case (colName, col) =>
+    val newColumns = columnSeq.filter { case (colName, col) =>
       !output.exists(f => resolver(f.name, colName))
     }.map { case (colName, col) => col.as(colName) }
 

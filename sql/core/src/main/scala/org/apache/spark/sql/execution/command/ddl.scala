@@ -281,6 +281,7 @@ case class AlterTableSetPropertiesCommand(
       properties = table.properties ++ properties,
       comment = properties.get(TableCatalog.PROP_COMMENT).orElse(table.comment))
     catalog.alterTable(newTable)
+    catalog.invalidateCachedTable(tableName)
     Seq.empty[Row]
   }
 
@@ -319,6 +320,7 @@ case class AlterTableUnsetPropertiesCommand(
     val newProperties = table.properties.filter { case (k, _) => !propKeys.contains(k) }
     val newTable = table.copy(properties = newProperties, comment = tableComment)
     catalog.alterTable(newTable)
+    catalog.invalidateCachedTable(tableName)
     Seq.empty[Row]
   }
 
@@ -678,7 +680,15 @@ case class AlterTableRecoverPartitionsCommand(
     // This is always the case for Hive format tables, but is not true for Datasource tables created
     // before Spark 2.1 unless they are converted via `msck repair table`.
     spark.sessionState.catalog.alterTable(table.copy(tracksPartitionsInCatalog = true))
-    spark.catalog.refreshTable(tableIdentWithDB)
+    try {
+      spark.catalog.refreshTable(tableIdentWithDB)
+    } catch {
+      case NonFatal(e) =>
+        logError(s"Cannot refresh the table '$tableIdentWithDB'. A query of the table " +
+          "might return wrong result if the table was cached. To avoid such issue, you should " +
+          "uncache the table manually via the UNCACHE TABLE command after table recovering will " +
+          "complete fully.", e)
+    }
     logInfo(s"Recovered all partitions ($total).")
     Seq.empty[Row]
   }

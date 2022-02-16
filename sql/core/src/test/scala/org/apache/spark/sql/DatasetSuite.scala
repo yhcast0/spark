@@ -1980,6 +1980,41 @@ class DatasetSuite extends QueryTest
 
     checkAnswer(withUDF, Row(Row(1), null, null) :: Row(Row(1), null, null) :: Nil)
   }
+
+  test("SPARK-35652: joinWith on two table generated from same one performing a cartesian join," +
+    " which should be inner join") {
+    val df = Seq(1, 2, 3).toDS()
+
+    val joined = df.joinWith(df, df("value") === df("value"), "inner")
+
+    val expectedSchema = StructType(Seq(
+      StructField("_1", IntegerType, nullable = false),
+      StructField("_2", IntegerType, nullable = false)
+    ))
+
+    assert(joined.schema === expectedSchema)
+
+    checkDataset(
+      joined,
+      (1, 1), (2, 2), (3, 3))
+  }
+
+  test("SPARK-36210: withColumns preserve insertion ordering") {
+    val df = Seq(1, 2, 3).toDS()
+
+    val colNames = (1 to 10).map(i => s"value${i}")
+    val cols = (1 to 10).map(i => col("value") + i)
+
+    val inserted = df.withColumns(colNames, cols)
+
+    assert(inserted.columns === "value" +: colNames)
+
+    checkDataset(
+      inserted.as[(Int, Int, Int, Int, Int, Int, Int, Int, Int, Int, Int)],
+      (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11),
+      (2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12),
+      (3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13))
+  }
 }
 
 case class Bar(a: Int)

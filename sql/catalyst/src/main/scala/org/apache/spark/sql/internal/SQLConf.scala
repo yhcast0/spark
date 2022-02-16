@@ -491,8 +491,8 @@ object SQLConf {
         "reduce IO and improve performance. Note, multiple contiguous blocks exist in single " +
         s"fetch request only happen when '${ADAPTIVE_EXECUTION_ENABLED.key}' and " +
         s"'${COALESCE_PARTITIONS_ENABLED.key}' are both true. This feature also depends " +
-        "on a relocatable serializer, the concatenation support codec in use and the new version " +
-        "shuffle fetch protocol.")
+        "on a relocatable serializer, the concatenation support codec in use, the new version " +
+        "shuffle fetch protocol and io encryption is disabled.")
       .version("3.0.0")
       .booleanConf
       .createWithDefault(true)
@@ -1882,8 +1882,10 @@ object SQLConf {
   val JOIN_REORDER_CARD_WEIGHT =
     buildConf("spark.sql.cbo.joinReorder.card.weight")
       .internal()
-      .doc("The weight of cardinality (number of rows) for plan cost comparison in join reorder: " +
-        "rows * weight + size * (1 - weight).")
+      .doc("The weight of the ratio of cardinalities (number of rows) " +
+        "in the cost comparison function. The ratio of sizes in bytes has weight " +
+        "1 - this value. The weighted geometric mean of these ratios is used to decide " +
+        "which of the candidate plans will be chosen by the CBO.")
       .version("2.2.0")
       .doubleConf
       .checkValue(weight => weight >= 0 && weight <= 1, "The weight value must be in [0, 1].")

@@ -120,6 +120,7 @@ class EquivalentExpressions {
   // For some special expressions we cannot just recurse into all of its children, but we can
   // recursively add the common expressions shared between all of its children.
   private def commonChildrenToRecurse(expr: Expression): Seq[Seq[Expression]] = expr match {
+    case _: CodegenFallback => Nil
     case i: If => Seq(Seq(i.trueValue, i.falseValue))
     case c: CaseWhen =>
       // We look at subexpressions in conditions and values of `CaseWhen` separately. It is
@@ -128,7 +129,13 @@ class EquivalentExpressions {
       // a subexpression among values doesn't need to be in conditions because no matter which
       // condition is true, it will be evaluated.
       val conditions = c.branches.tail.map(_._1)
-      val values = c.branches.map(_._2) ++ c.elseValue
+      // For an expression to be in all branch values of a CaseWhen statement, it must also be in
+      // the elseValue.
+      val values = if (c.elseValue.nonEmpty) {
+        c.branches.map(_._2) ++ c.elseValue
+      } else {
+        Nil
+      }
       Seq(conditions, values)
     case c: Coalesce => Seq(c.children.tail)
     case _ => Nil

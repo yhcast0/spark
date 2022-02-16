@@ -144,13 +144,15 @@ object ScanOperation extends OperationHelper with PredicateHelper {
       case Filter(condition, child) =>
         collectProjectsAndFilters(child) match {
           case Some((fields, filters, other, aliases)) =>
-            // Follow CombineFilters and only keep going if 1) the collected Filters
-            // and this filter are all deterministic or 2) if this filter is the first
-            // collected filter and doesn't have common non-deterministic expressions
-            // with lower Project.
+            // When collecting projects and filters, we effectively push down filters through
+            // projects. We need to meet the following conditions to do so:
+            //   1) no Project collected so far or the collected Projects are all deterministic
+            //   2) the collected filters and this filter are all deterministic, or this is the
+            //      first collected filter.
+            val canCombineFilters = fields.forall(_.forall(_.deterministic)) && {
+              filters.isEmpty || (filters.forall(_.deterministic) && condition.deterministic)
+            }
             val substitutedCondition = substitute(aliases)(condition)
-            val canCombineFilters = (filters.nonEmpty && filters.forall(_.deterministic) &&
-              substitutedCondition.deterministic) || filters.isEmpty
             if (canCombineFilters && !hasCommonNonDeterministic(Seq(condition), aliases)) {
               Some((fields, filters ++ splitConjunctivePredicates(substitutedCondition),
                 other, aliases))
@@ -333,7 +335,7 @@ object PhysicalAggregation {
           case ue: PythonUDF if PythonUDF.isGroupedAggPandasUDF(ue) =>
             equivalentAggregateExpressions.getEquivalentExprs(ue).headOption
               .getOrElse(ue).asInstanceOf[PythonUDF].resultAttribute
-          case expression =>
+          case expression if !expression.foldable =>
             // Since we're using `namedGroupingAttributes` to extract the grouping key
             // columns, we need to replace grouping key expressions with their corresponding
             // attributes. We do not rely on the equality check at here since attributes may
