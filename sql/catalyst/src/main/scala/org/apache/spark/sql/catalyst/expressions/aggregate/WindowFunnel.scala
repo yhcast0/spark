@@ -54,17 +54,14 @@ case class WindowFunnel(windowLit: Expression,
 
   def toBoolean(expr: Expression, input: InternalRow): Boolean = {
     expr.eval(input).toString.toBoolean
-//    new Cast(expr, BooleanType).eval(input).toString.toBoolean
   }
 
   def toInteger(expr: Expression, input: InternalRow): Int = {
     expr.eval(input).toString.toInt
-//    new Cast(expr, IntegerType).eval(input).toString.toInt
   }
 
   def toLong(expr: Expression, input: InternalRow): Long = {
     expr.eval(input).toString.toLong
-//    new Cast(expr, LongType).eval(input).toString.toLong
   }
 
   def toString(expr: Expression, input: InternalRow): String = {
@@ -74,17 +71,11 @@ case class WindowFunnel(windowLit: Expression,
     } else {
       null
     }
-//    val raw = new Cast(expr, StringType).eval(input)
-//    if (raw != null) {
-//      raw.toString
-//    } else {
-//      null
-//    }
   }
 
   override def update(buffer: Seq[Event], input: InternalRow): Seq[Event] = {
     val evtId = toInteger(evtConds, input)
-    if (evtId == -1) {
+    if (evtId < 0 || evtId >= evtNum) {
       return buffer
     }
     val ts = toLong(eventTsCol, input)
@@ -102,8 +93,6 @@ case class WindowFunnel(windowLit: Expression,
     val grouped = buffer.groupBy(e => e.dim)
     val nullDimEvents = grouped.getOrElse(null, Seq())
 
-//    logDebug("events " + buffer)
-//    logDebug("group by dim" + nullDimEvents)
 
     grouped.map(e => {
       if (e._1 == null) {
@@ -116,7 +105,7 @@ case class WindowFunnel(windowLit: Expression,
   }
 
   private def longestSeqId(events: Seq[Event]): Int = {
-    val sorted = events.sortBy(e => e.ts)
+    val sorted = events.sortBy(e => (e.ts, e.eid))
 
     val timestamps = Array.fill[Long](evtNum)(-1)
     sorted.foreach(e => {
@@ -127,7 +116,7 @@ case class WindowFunnel(windowLit: Expression,
       }
 
       if (timestamps.last > -1) {
-        return timestamps.length
+        return timestamps.length - 1
       }
     })
 
@@ -188,7 +177,6 @@ object SerializeUtil {
       val oos = new ObjectOutputStream(baos)
       oos.writeInt(events.length)
       events.foreach(e => writeEvent(oos, e))
-//      oos.writeObject(events)
       oos.flush()
       val bytes = baos.toByteArray
       bytes
