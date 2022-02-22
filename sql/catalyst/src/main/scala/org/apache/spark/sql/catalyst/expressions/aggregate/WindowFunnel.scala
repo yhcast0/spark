@@ -19,8 +19,8 @@ package org.apache.spark.sql.catalyst.expressions.aggregate
 
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.expressions.Expression
-import org.apache.spark.sql.types.{DataType, IntegerType}
+import org.apache.spark.sql.catalyst.expressions.{Cast, Expression}
+import org.apache.spark.sql.types.{DataType, IntegerType, LongType, NumericType, TimestampType}
 
 
 /**
@@ -61,7 +61,15 @@ case class WindowFunnel(windowLit: Expression,
   }
 
   def toLong(expr: Expression, input: InternalRow): Long = {
-    expr.eval(input).toString.toLong
+    expr.dataType match {
+      case _: NumericType =>
+        expr.eval(input).toString.toLong
+      case _: TimestampType =>
+        expr.eval(input).toString.toLong / 1000000
+      case _ =>
+        // timezone doesn't really matter here
+        Cast(Cast(expr, TimestampType, Some("UTC")), LongType).eval(input).toString.toLong
+    }
   }
 
   def toString(expr: Expression, input: InternalRow): String = {
