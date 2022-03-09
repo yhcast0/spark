@@ -97,10 +97,18 @@
     <module>sql/core</module>
     <module>sql/hive</module>
     <module>assembly</module>
-    <!--<module>external/flume</module>
+
+    <!--
+    KE-34276, netty 3.9.9.final has security vulnerabilities, and there is no fixed version to upgrade,
+    'spark-flume' depends on netty 3.9.9, and 'examples' depends on spark-flume, so excludes them all
+    -->
+    <!--
+    <module>external/flume</module>
     <module>external/flume-sink</module>
-    <module>external/flume-assembly</module>-->
+    <module>external/flume-assembly</module>
     <module>examples</module>
+    -->
+
     <!-- adapt  -->
     <!--<module>repl</module>-->
     <module>launcher</module>
