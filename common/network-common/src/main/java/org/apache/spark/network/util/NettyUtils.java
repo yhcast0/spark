@@ -110,14 +110,15 @@ public class NettyUtils {
       numCores = Runtime.getRuntime().availableProcessors();
     }
     return new PooledByteBufAllocator(
-      allowDirectBufs && PlatformDependent.directBufferPreferred(),
-      Math.min(getPrivateStaticField("DEFAULT_NUM_HEAP_ARENA"), numCores),
-      Math.min(getPrivateStaticField("DEFAULT_NUM_DIRECT_ARENA"), allowDirectBufs ? numCores : 0),
-      getPrivateStaticField("DEFAULT_PAGE_SIZE"),
-      getPrivateStaticField("DEFAULT_MAX_ORDER"),
-      allowCache ? getPrivateStaticField("DEFAULT_TINY_CACHE_SIZE") : 0,
-      allowCache ? getPrivateStaticField("DEFAULT_SMALL_CACHE_SIZE") : 0,
-      allowCache ? getPrivateStaticField("DEFAULT_NORMAL_CACHE_SIZE") : 0
+        allowDirectBufs && PlatformDependent.directBufferPreferred(),
+        Math.min(PooledByteBufAllocator.defaultNumHeapArena(), numCores),
+        Math.min(PooledByteBufAllocator.defaultNumDirectArena(), allowDirectBufs ? numCores : 0),
+        PooledByteBufAllocator.defaultPageSize(),
+        PooledByteBufAllocator.defaultMaxOrder(),
+        allowCache ? PooledByteBufAllocator.defaultTinyCacheSize() : 0,
+        allowCache ? PooledByteBufAllocator.defaultSmallCacheSize() : 0,
+        allowCache ? PooledByteBufAllocator.defaultNormalCacheSize() : 0,
+        allowCache ? PooledByteBufAllocator.defaultUseCacheForAllThreads() : false
     );
   }
 

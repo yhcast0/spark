@@ -242,6 +242,8 @@ private class ReadableChannelFileRegion(source: ReadableByteChannel, blockSize: 
 
   override def transfered(): Long = _transferred
 
+  override def transferred: Long = _transferred
+
   override def transferTo(target: WritableByteChannel, pos: Long): Long = {
     assert(pos == transfered(), "Invalid position.")
 
@@ -264,6 +266,20 @@ private class ReadableChannelFileRegion(source: ReadableByteChannel, blockSize: 
     _transferred += written
     written
   }
+
+  override def touch(o: Any): FileRegion = this
+
+  override def retain: FileRegion = {
+    super.retain
+    this
+  }
+
+  override def retain(increment: Int): FileRegion = {
+    super.retain(increment)
+    this
+  }
+
+  override def touch: FileRegion = this
 
   override def deallocate(): Unit = source.close()
 }

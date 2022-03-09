@@ -204,6 +204,11 @@ public class TransportCipher {
     }
 
     @Override
+    public long transferred() {
+      return transferred;
+    }
+
+    @Override
     public long transferTo(WritableByteChannel target, long position) throws IOException {
       Preconditions.checkArgument(position == transfered(), "Invalid position.");
 
@@ -252,6 +257,28 @@ public class TransportCipher {
         buf.release();
       }
     }
+
+    @Override
+    public FileRegion touch(Object o) {
+      return this;
+    }
+    @Override
+    public FileRegion retain() {
+      super.retain();
+      return this;
+    }
+
+    @Override
+    public FileRegion retain(int increment) {
+      super.retain(increment);
+      return this;
+    }
+
+    @Override
+    public FileRegion touch() {
+      return this;
+    }
+
   }
 
 }

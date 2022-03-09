@@ -187,6 +187,11 @@ class SaslEncryption {
       return transferred;
     }
 
+    @Override
+    public long transferred() {
+      return transferred;
+    }
+
     /**
      * Transfers data from the original message to the channel, encrypting it in the process.
      *
@@ -285,6 +290,26 @@ class SaslEncryption {
       }
     }
 
+    @Override
+    public FileRegion touch(Object o) {
+      return this;
+    }
+    @Override
+    public FileRegion retain() {
+      super.retain();
+      return this;
+    }
+
+    @Override
+    public FileRegion retain(int increment) {
+      super.retain(increment);
+      return this;
+    }
+
+    @Override
+    public FileRegion touch() {
+      return this;
+    }
   }
 
 }
