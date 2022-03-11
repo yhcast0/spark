@@ -21,8 +21,8 @@ import java.io.{ByteArrayInputStream, ByteArrayOutputStream, DataInputStream, Da
 
 import org.apache.spark.sql.TypedImperativeAggregateSuite.TypedMax
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.expressions.{BoundReference, Expression, GenericInternalRow, ImplicitCastInputTypes, SpecificInternalRow}
 import org.apache.spark.sql.catalyst.expressions.aggregate.{TypedImperativeAggregate, WindowFunnel}
+import org.apache.spark.sql.catalyst.expressions.{BoundReference, Expression, GenericInternalRow, ImplicitCastInputTypes, SpecificInternalRow}
 import org.apache.spark.sql.execution.aggregate.HashAggregateExec
 import org.apache.spark.sql.expressions.Window
 import org.apache.spark.sql.functions._
@@ -225,62 +225,76 @@ class TypedImperativeAggregateSuite extends QueryTest with SharedSparkSession {
     checkAnswer(df, expected.toDF())
   }
 
+  // ignore("test window funnel") {
   ignore("test window funnel") {
-    val colNames = Seq("uid", "eid", "dim1", "dim2", "ts")
+    val colNames = Seq("uid", "eid", "dim1", "dim2",
+      "o_dim1", "o_dim2", "o_dim3", "dim3", "ts")
 
     val df1 = Seq(
-      //"uid", "eid", "dim1", "dim2", "ts"
+      // "uid", "eid", "dim1", "dim2", "dim3", "ts"
       // single sequence
-      (901, 1, null, null, 1)
-      ,(901, 2, null, null, 2)
-      ,(901, 3, null, null, 3)
-      ,(901, 4, null, null, 4)
-      ,(901, 5, null, null, 5)
-      // single sequence (out of window)
-      ,(902, 1, null, null, 1)
-      ,(902, 2, null, null, 2)
-      ,(902, 3, null, null, 100)
-      ,(902, 4, null, null, 101)
-      ,(902, 5, null, null, 102)
+        (901, 1, "null1", "aa1", 1L, 2.1d, 0.1f, null, 1646364222007L)
+      , (901, 2, "null2", "aa2", 2L, 2.2d, 0.2f, null, 1646364236022L)
+      , (901, 3, "null3", "aa3", 3L, 2.3d, 0.3f, null, 1646364251414L)
+      , (901, 4, "null4", "aa4", 4L, 2.41d, 0.41f, null, 1646364263738L)
+      , (901, 4, "null4", "aa4", 4L, 2.42d, 0.42f, null, 1646364263739L)
+      , (901, 5, "null5", "aa5", 5L, 2.5d, 0.5f, null, 1646364273238L)
+      , (901, 1, "w0001", "888", 11L, 3.1d, 0.6f, null, 1600001L)
+      , (901, 2, "w0002", "bb7", 12L, 3.2d, 0.7f, null, 1600002L)
+      , (901, 3, "w0003", "bb8", 13L, 3.3d, 0.8f, null, 1600003L)
+      , (901, 6, "null6", "aa6", 6L, 2.6d, 0.6f, null, 1646364273998L)
+      , (902, 1, "ee001", "cc1", 21L, 4.1d, 0.9f, null, 1001L)
+      , (902, 2, "ee002", "cc2", 22L, 4.2d, 0.11f, null, 1002L)
+      , (902, 3, "ee003", "cc3", 23L, 4.3d, 0.12f, null, 1003L)
+      , (902, 4, "ee004", "cc4", 24L, 4.4d, 0.13f, null, 1004L)
+      , (902, 5, "ee005", "cc5", 25L, 4.5d, 0.14f, null, 1005L)
     ).toDF(colNames: _*)
-    df1.createOrReplaceTempView("events")
-    checkWindowAnswer(spark.sql("select uid, window_funnel(10, 5, ts, eid - 1, null) from events group by uid"), Seq((901, 5), (902, 2)))
+    df1.createOrReplaceTempView("events00")
+    checkWindowAnswer(spark.sql(
+      "select uid, " +
+        "window_funnel(100000, 6, ts, eid - 1, dim3, " +
+        "struct(struct(1,eid),struct(2,dim1),struct(1,eid)" +
+         ",struct(2,dim2),struct(2,dim2)" +
+         ",struct(3,o_dim1),struct(3,o_dim2),struct(3,o_dim3)" +
+        "))" +
+      " from events00 group by uid"), Seq((901, 5), (902, 2)))
 
     val df2 = Seq(
-      //"uid", "eid", "dim1", "dim2", "ts"
+      // "uid", "eid", "dim1", "dim2", "ts"
       // multiple sequence
       (901, 1, null, null, 1)
-      ,(901, 2, null, null, 2)
-      ,(901, 1, null, null, 3)
-      ,(901, 3, null, null, 4)
-      ,(901, 1, null, null, 5)
-      ,(901, 2, null, null, 6)
-      ,(901, 4, null, null, 7)
-      ,(901, 5, null, null, 11)
+      , (901, 2, null, null, 2)
+      , (901, 1, null, null, 3)
+      , (901, 3, null, null, 4)
+      , (901, 1, null, null, 5)
+      , (901, 2, null, null, 6)
+      , (901, 4, null, null, 7)
+      , (901, 5, null, null, 11)
     ).toDF(colNames: _*)
     df2.createOrReplaceTempView("events")
-    checkWindowAnswer(spark.sql("select uid, window_funnel(10, 5, ts, eid - 1, null) from events group by uid"), Seq((901, 5)))
+    checkWindowAnswer(spark.sql("select uid, window_funnel(10, 5, ts, eid - 1, null)" +
+      " from events group by uid"), Seq((901, 5)))
 
     val df3 = Seq(
-      //"uid", "eid", "dim1", "dim2", "ts"
+      // "uid", "eid", "dim1", "dim2", "ts"
       // multiple sequence with dim
       (901, 1, "CN", null, 1)
-      ,(901, 2, null, null, 2)
-      ,(901, 1, null, null, 3)
-      ,(901, 3, null, "CN", 4)
-      ,(901, 1, null, null, 5)
-      ,(901, 2, null, null, 6)
-      ,(901, 4, null, "CN", 7)
-      ,(901, 5, null, null, 8)
+      , (901, 2, null, null, 2)
+      , (901, 1, null, null, 3)
+      , (901, 3, null, "CN", 4)
+      , (901, 1, null, null, 5)
+      , (901, 2, null, null, 6)
+      , (901, 4, null, "CN", 7)
+      , (901, 5, null, null, 8)
       // multiple sequence with dim
-      ,(902, 1, "CN", null, 1)
-      ,(902, 2, null, null, 2)
-      ,(902, 1, null, null, 3)
-      ,(902, 3, null, "CN", 4)
-      ,(902, 1, null, null, 5)
-      ,(902, 2, null, null, 6)
-      ,(902, 4, null, "US", 7)
-      ,(902, 5, null, null, 8)
+      , (902, 1, "CN", null, 1)
+      , (902, 2, null, null, 2)
+      , (902, 1, null, null, 3)
+      , (902, 3, null, "CN", 4)
+      , (902, 1, null, null, 5)
+      , (902, 2, null, null, 6)
+      , (902, 4, null, "US", 7)
+      , (902, 5, null, null, 8)
     ).toDF(colNames: _*)
     df3.createOrReplaceTempView("events")
     checkWindowAnswer(spark.sql(
@@ -303,7 +317,7 @@ class TypedImperativeAggregateSuite extends QueryTest with SharedSparkSession {
       )
     }
     val df = events.toDF("uid", "eid", "dim1", "dim2", "ts")
-    println(s"generated")
+    // println(s"generated")
 
 //    df.orderBy("uid").show(100, false)
 
@@ -312,7 +326,8 @@ class TypedImperativeAggregateSuite extends QueryTest with SharedSparkSession {
       lit(5).expr,
       Column("ts").expr,
       Column("eid").expr,
-      lit(null).expr
+      lit(null).expr,
+      null
     ).toAggregateExpression()
 
     println(s"started")
