@@ -22,10 +22,11 @@ import java.util.concurrent.ConcurrentHashMap
 
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.expressions.{Cast, CreateNamedStruct, Expression, GenericInternalRow, Literal, PrettyAttribute}
+import org.apache.spark.sql.catalyst.expressions.{Cast, CreateArray, CreateNamedStruct, Expression, GenericInternalRow, Literal}
 import org.apache.spark.sql.catalyst.util.GenericArrayData
 import org.apache.spark.sql.types._
 import org.apache.spark.unsafe.UTF8StringBuilder
+import org.apache.spark.unsafe.types.UTF8String
 
 
 /**
@@ -88,27 +89,42 @@ case class WindowFunnel(windowLit: Expression,
     }
   }
 
-  val attachPropertiesNum = stepIdPropsArray.children.length
-  val cacheStepIdWithPropMap = new ConcurrentHashMap[String, Any]()
-  val attachPropMap = {
-    val propMap = new ConcurrentHashMap[Integer, util.HashSet[String]]()
-    for (i <- 0 until attachPropertiesNum) {
-      val children = stepIdPropsArray.children.apply(i)
-      val nameExprs = children.asInstanceOf[CreateNamedStruct].nameExprs
-      val propertyColumn = nameExprs.apply(1)
-      val stepId = children.asInstanceOf[CreateNamedStruct].valExprs.apply(0).toString.toInt
-      if (propMap.get(stepId) == null) {
-        propMap.put(stepId, new util.HashSet[String])
-      }
-      var propertyColumnName = ""
-      if (propertyColumn.isInstanceOf[PrettyAttribute]) {
-        propertyColumnName = propertyColumn.asInstanceOf[PrettyAttribute].name
-      } else if (propertyColumn.isInstanceOf[Literal]) {
-        propertyColumnName = propertyColumn.asInstanceOf[Literal].value + ""
-      }
-      propMap.get(stepId).add(propertyColumnName)
+  val attachProps = stepIdPropsArray.children
+    .filter(e => e.isInstanceOf[CreateNamedStruct])
+  val attachPropsIndexMap = {
+    val attachPropsIndexMap = new ConcurrentHashMap[Expression, Integer]()
+    for (i <- 0 until attachProps.length) {
+      attachPropsIndexMap.put(attachProps.apply(i), i)
     }
-    propMap
+    attachPropsIndexMap
+  }
+  val attachPropNum = attachProps.length
+  val cacheEvalStepIdPropsArrayExpressionMap = {
+    val expressionMap = new ConcurrentHashMap[Integer, CreateArray]()
+    if (stepIdPropsArray == null) {
+      expressionMap
+    } else {
+      var srcExpressionMap = new ConcurrentHashMap[Integer, util.ArrayList[Expression]]()
+      attachProps.foreach(expression => {
+        val stepId = expression.asInstanceOf[CreateNamedStruct].valExprs.apply(0).toString.toInt
+        if (srcExpressionMap.get(stepId) == null) {
+          srcExpressionMap.put(stepId, new util.ArrayList[Expression])
+        }
+        srcExpressionMap.get(stepId).add(expression)
+      })
+      srcExpressionMap.forEach((stepId, expressionSet) => {
+        val array = new Array[Expression](expressionSet.size())
+        var index = 0
+        expressionSet.toArray.foreach(expression => {
+          array(index) = expression.asInstanceOf[Expression]
+          index = index + 1
+        })
+        val createArray = new CreateArray(array.toSeq)
+        expressionMap.put(stepId, createArray)
+      })
+      srcExpressionMap = null
+      expressionMap
+    }
   }
 
   override def update(buffer: Seq[Event], input: InternalRow): Seq[Event] = {
@@ -118,20 +134,24 @@ case class WindowFunnel(windowLit: Expression,
     }
     val ts = toLong(eventTsCol, input)
     val dimValue = toString(dimValueExpr, input)
-    if (stepIdPropsArray != null) {
-      val attachPropsArray = stepIdPropsArray.eval(input).asInstanceOf[GenericArrayData]
-      val attachPropArray = new Array[Any](attachPropsArray.array.length)
+    val stepIdAttachPropsArrayExpression = cacheEvalStepIdPropsArrayExpressionMap.get(evtId)
+    if (stepIdAttachPropsArrayExpression != null) {
+      val attachPropsNameArray = stepIdAttachPropsArrayExpression
+        .eval(input).asInstanceOf[GenericArrayData]
+      val attachPropsArray = new Array[Any](attachPropsNameArray.array.length)
       var index = 0
-      attachPropsArray.array.foreach(e => {
-        val attachDataArray = e.asInstanceOf[GenericInternalRow].values
-        val stepId = attachDataArray.apply(0)
-        val attachPropValue = attachDataArray.apply(1)
-        if (evtId == stepId) {
-          attachPropArray(index) = attachPropValue.toString
-          index = index + 1
+      attachPropsNameArray.array.foreach(e => {
+        val attachPropValue = e.asInstanceOf[GenericInternalRow].values.apply(1)
+        if (attachPropValue.isInstanceOf[UTF8String]) {
+          val strBuilder = new UTF8StringBuilder
+          strBuilder.append("" + attachPropValue)
+          attachPropsArray(index) = strBuilder.build()
+        } else {
+          attachPropsArray(index) = attachPropValue
         }
+        index = index + 1
       })
-      val event = Event(evtId, ts, dimValue, attachPropArray)
+      val event = Event(evtId, ts, dimValue, attachPropsArray)
       buffer :+ event
     } else {
       val event = Event(evtId, ts, dimValue, null)
@@ -154,7 +174,6 @@ case class WindowFunnel(windowLit: Expression,
     val grouped = buffer.groupBy(e => e.dim)
     val nullDimEvents = grouped.getOrElse(null, Seq())
 
-
     val result = grouped.map(e => {
       if (e._1 == null) {
         e
@@ -163,26 +182,16 @@ case class WindowFunnel(windowLit: Expression,
         (e._1, e._2 ++ nullDimEvents)
       }
     }).map(e =>
-      longestSeqId(e._2,
-        cacheStepIdWithPropMap)
+      longestSeqId(e._2)
     )
     val orderResult = result.toSeq.sortBy(e => (e._1, e._2))
     val maxDepId = orderResult.apply(0)
-    val returnRow = new GenericInternalRow(2 + attachPropertiesNum)
+    val returnRow = new GenericInternalRow(2 + attachPropNum)
     returnRow(0) = maxDepId._1
     returnRow(1) = maxDepId._2
-
-    for (i <- 0 until attachPropertiesNum) {
-      val children = stepIdPropsArray.children.apply(i)
-      val nameExprs = children.asInstanceOf[CreateNamedStruct].nameExprs
-      val stepId = children.asInstanceOf[CreateNamedStruct].valExprs
-        .apply(0).asInstanceOf[Literal].value
-      val propertyColumn = nameExprs.apply(1)
-      val propertyColumnName = propertyColumn.asInstanceOf[Literal].value
-      val propertyColumnType = children.dataType.asInstanceOf[StructType].apply(i).dataType
-      val attachPropValue = cacheStepIdWithPropMap
-        .get(maxDepId._2 + "_" + stepId + "_" + propertyColumnName)
-      returnRow(i + 2) = generateData(attachPropValue, propertyColumnType)
+    val attachPropValue = maxDepId._3
+    for (i <- 0 until attachPropNum) {
+      returnRow(i + 2) = attachPropValue.apply(i)
     }
     returnRow
 
@@ -205,55 +214,70 @@ case class WindowFunnel(windowLit: Expression,
     }
   }
 
-  private def generateData(data: Any, dataType: DataType): Any = {
-    dataType match {
-      case StringType =>
-        val strBuilder = new UTF8StringBuilder
-        strBuilder.append(data + "")
-        strBuilder.build()
-      case _ => data
-    }
-  }
+  private def longestSeqId(events: Seq[Event]): (Int, Long, Array[Any]) = {
 
-  private def longestSeqId(events: Seq[Event],
-        cacheStepIdWithPropMap: ConcurrentHashMap[String, Any]
-      ): (Int, Long) = {
-
-    val sorted = events.sortBy(e => (e.ts, e.eid))
-    val startTimeStamp = sorted.apply(0).ts
-
-    sorted.foreach(e => {
-      val attachProps = attachPropMap.get(e.eid)
-      if (attachProps != null) {
-        val it = attachProps.iterator()
-        var index = 0
-        while (it.hasNext) {
-          val attachPropColName = it.next()
-          cacheStepIdWithPropMap.put(startTimeStamp + "_" + e.eid + "_" + attachPropColName,
-            e.attachPropsArray(index))
-          index = index + 1
-        }
-      }
-    })
-
+    var returnData = (-1, -1L, new Array[Any](attachPropNum))
     var maxStepId = -1
+    if (evtNum < 1) {
+      return returnData
+    }
+    val attachCurrentPropValuesMap = new util.HashMap[Long, Array[Any]]()
+    val sorted = events.sortBy(e => (e.ts, e.eid))
     val timestamps = Array.fill[Long](evtNum)(-1)
+    var lastId = -1
     sorted.foreach(e => {
       if (e.eid == 0) {
+        val currAttachPropsValues = new Array[Any](attachPropNum)
+        val cacheAttachProps = cacheEvalStepIdPropsArrayExpressionMap.get(e.eid)
+        if (cacheAttachProps != null) {
+          assignAttachPropValue(cacheAttachProps, currAttachPropsValues, e)
+        }
+        if (timestamps(e.eid) == -1) {
+          returnData = (e.eid, e.ts, currAttachPropsValues)
+        }
         timestamps(e.eid) = e.ts
+        attachCurrentPropValuesMap.put(timestamps(e.eid), currAttachPropsValues)
       } else if (timestamps(e.eid -1) > -1 && timestamps(e.eid -1) + window >= e.ts) {
-        timestamps(e.eid) = e.ts
+        val cacheAttachProps = cacheEvalStepIdPropsArrayExpressionMap.get(e.eid)
+        if (lastId != e.eid
+          && cacheAttachProps != null) {
+          assignAttachPropValue(cacheAttachProps,
+            attachCurrentPropValuesMap.get(timestamps(e.eid -1)), e)
+        }
+        lastId = e.eid
+        if (timestamps(e.eid) == -1) {
+          returnData = (e.eid, timestamps(e.eid - 1),
+            attachCurrentPropValuesMap.get(timestamps(0)))
+        }
+        timestamps(e.eid) = timestamps(e.eid - 1)
       }
 
       if (timestamps.last > -1) {
         maxStepId = timestamps.length - 1
-        return (maxStepId, startTimeStamp)
+        return returnData
       }
     })
 
     maxStepId = timestamps.lastIndexWhere(ts => ts > -1)
-    (maxStepId, startTimeStamp)
+    (maxStepId, returnData._2, attachCurrentPropValuesMap.get(returnData._2))
 
+  }
+
+  def assignAttachPropValue(cacheAttachProps: Expression,
+      currAttachPropsValues: Array[Any], e: Event): Unit = {
+    for (i <- 0 until cacheAttachProps.children.length) {
+      val curExpression = cacheAttachProps.children.apply(i)
+      val attachPropIndex = attachPropsIndexMap.get(curExpression)
+      if (currAttachPropsValues(attachPropIndex) == null) {
+        currAttachPropsValues(attachPropIndex) = e.attachPropsArray(i)
+      } else {
+        for (j <- 0 until attachProps.length) {
+          if (curExpression == attachProps.apply(j)) {
+            currAttachPropsValues(j) = e.attachPropsArray(i)
+          }
+        }
+      }
+    }
   }
 
   override def serialize(buffer: Seq[Event]): Array[Byte] = {
@@ -279,12 +303,12 @@ case class WindowFunnel(windowLit: Expression,
 
   override def dataType: DataType = {
     var fields = field_max_stepId + "," + field_start_time
-    for (i <- 0 until attachPropertiesNum) {
-      val children = stepIdPropsArray.children.apply(i)
+    for (i <- 0 until attachPropNum) {
+      val children = attachProps.apply(i)
       val nameExprs = children.asInstanceOf[CreateNamedStruct].nameExprs
       val propertyColumn = nameExprs.apply(1)
       val propertyColumnName = propertyColumn.asInstanceOf[Literal].value
-      val propertyColumnType = children.dataType.asInstanceOf[StructType].apply(i).dataType
+      val propertyColumnType = children.dataType.asInstanceOf[StructType].apply(1).dataType
       fields = fields + ",{\"name\":\"" + propertyColumnName +
         "\",\"type\":\"" + transformDataType(propertyColumnType) +
         "\",\"nullable\":true,\"metadata\":{}}"
@@ -293,7 +317,6 @@ case class WindowFunnel(windowLit: Expression,
         fields +
       "]}")
   }
-
 
   override def children: Seq[Expression] =
     windowLit :: eventTsCol :: evtNumExpr :: evtConds :: dimValueExpr :: stepIdPropsArray :: Nil
