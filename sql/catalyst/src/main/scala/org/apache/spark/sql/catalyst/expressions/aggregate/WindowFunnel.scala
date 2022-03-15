@@ -60,12 +60,14 @@ case class WindowFunnel(windowLit: Expression,
 
   override def createAggregationBuffer(): Seq[Event] = Seq[Event]()
 
-  def toBoolean(expr: Expression, input: InternalRow): Boolean = {
-    expr.eval(input).toString.toBoolean
-  }
-
   def toInteger(expr: Expression, input: InternalRow): Int = {
-    expr.eval(input).toString.toInt
+    expr.dataType match {
+      case _: NullType =>
+        -1
+      case _ =>
+        // timezone doesn't really matter here
+        expr.eval(input).toString.toInt
+    }
   }
 
   def toLong(expr: Expression, input: InternalRow): Long = {
@@ -74,6 +76,8 @@ case class WindowFunnel(windowLit: Expression,
         expr.eval(input).toString.toLong
       case _: TimestampType =>
         expr.eval(input).toString.toLong / 1000000
+      case _: NullType =>
+        -1L
       case _ =>
         // timezone doesn't really matter here
         Cast(Cast(expr, TimestampType, Some("UTC")), LongType).eval(input).toString.toLong
@@ -133,6 +137,9 @@ case class WindowFunnel(windowLit: Expression,
       return buffer
     }
     val ts = toLong(eventTsCol, input)
+    if (ts < 0) {
+      return buffer
+    }
     val dimValue = toString(dimValueExpr, input)
     val stepIdAttachPropsArrayExpression = cacheEvalStepIdPropsArrayExpressionMap.get(evtId)
     if (stepIdAttachPropsArrayExpression != null) {
@@ -166,9 +173,10 @@ case class WindowFunnel(windowLit: Expression,
 
   override def eval(buffer: Seq[Event]): Any = {
     if (buffer.length == 0) {
-      val returnArray = new Array[Int](1)
-      returnArray(0) = -1
-      return returnArray
+      val returnRow = new GenericInternalRow(2 + attachPropNum)
+      returnRow(0) = -1
+      returnRow(1) = -1L
+      return returnRow
     }
 
     val grouped = buffer.groupBy(e => e.dim)
