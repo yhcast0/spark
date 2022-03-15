@@ -192,14 +192,16 @@ case class WindowFunnel(windowLit: Expression,
     }).map(e =>
       longestSeqId(e._2)
     )
-    val orderResult = result.toSeq.sortBy(e => (e._1, e._2))
+    val orderResult = result.toSeq.sortBy(e => (e._1, e._2)).reverse
     val maxDepId = orderResult.apply(0)
     val returnRow = new GenericInternalRow(2 + attachPropNum)
     returnRow(0) = maxDepId._1
     returnRow(1) = maxDepId._2
     val attachPropValue = maxDepId._3
-    for (i <- 0 until attachPropNum) {
-      returnRow(i + 2) = attachPropValue.apply(i)
+    if (attachPropValue != null) {
+      for (i <- 0 until attachPropNum) {
+        returnRow(i + 2) = attachPropValue.apply(i)
+      }
     }
     returnRow
 
@@ -267,6 +269,10 @@ case class WindowFunnel(windowLit: Expression,
     })
 
     maxStepId = timestamps.lastIndexWhere(ts => ts > -1)
+    val eventStartTime = attachCurrentPropValuesMap.get(returnData._2)
+    if (eventStartTime == null) {
+      return (-1, -1, null)
+    }
     (maxStepId, returnData._2, attachCurrentPropValuesMap.get(returnData._2))
 
   }

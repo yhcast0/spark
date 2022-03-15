@@ -225,6 +225,57 @@ class TypedImperativeAggregateSuite extends QueryTest with SharedSparkSession {
     checkAnswer(df, expected.toDF())
   }
 
+  ignore("test window funnel 001") {
+    val colNames = Seq("lstg_format_name", "cal_dt", "lstg_site_id",
+      "seller_id", "trans_id")
+
+    val df1 = Seq(
+        ("ABIN", "2012-01-01", 0, 10000294, 0)
+      , ("FP-non GTC", "2012-01-01", 0, 10000294, 1)
+      , ("Others", "2012-01-01", 0, 10000294, 2)
+      , ("Auction", "2012-01-01", 0, 10000294, 3)
+      , ("ABIN", "2012-01-01", 1, 10000294, 0)
+      , ("FP-non GTC", "2012-01-01", 1, 10000294, 1)
+      , ("Others", "2012-01-01", 1, 10000294, 2)
+      , ("Auction", "2012-01-01", 0, 10000403, 4)
+      , ("FP-non GTC", "2012-01-01", 15, 10000397, 5)
+      , ("Auction", "2012-01-01", 0, 10000025, 6)
+      , ("FP-GTC", "2012-01-01", 0, 10000670, 7)
+      , ("FP-non GTC", "2012-01-01", 0, 10000288, 8)
+      , ("FP-non GTC", "2012-01-01", 0, 10000753, 9)
+      , ("Others", "2012-01-01", 0, 10000117, 10)
+      , ("FP-non GTC", "2012-01-01", 0, 10000392, 11)
+      , ("FP-non GTC", "2012-01-01", 0, 10000207, 12)
+      , ("ABIN", "2012-01-01", 0, 10000896, 13)
+      , ("ABIN", "2012-01-01", 23, 10000527, 14)
+      , ("FP-GTC", "2012-01-01", 3, 10000549, 15)
+      , ("ABIN", "2012-01-01", 3, 10000081, 16)
+    ).toDF(colNames: _*)
+    df1.createOrReplaceTempView("test_kylin_fact")
+    checkWindowAnswer(spark.sql(
+      "select seller_id," +
+        " window_funnel(\n 5 * 24 * 60 * 60, \n" +
+        " 4, \n" +
+        " cal_dt, \n" +
+        " case when lstg_format_name = 'ABIN' then 0\n" +
+        " when lstg_format_name = 'FP-non GTC' then 1\n" +
+        " when lstg_format_name = 'Others' then 2\n" +
+        " when lstg_format_name = 'Auction' then 3\n" +
+        " else -1 end, \n" +
+        " case when lstg_format_name = 'ABIN' then lstg_site_id\n" +
+        " when lstg_format_name = 'FP-non GTC' then lstg_site_id\n" +
+        " when lstg_format_name = 'Others' then lstg_site_id\n" +
+        " when lstg_format_name = 'Auction' then lstg_site_id\n" +
+        " else null end,\n" +
+        " struct(struct(1, seller_id), struct(3, trans_id)) \n ) seq\n" +
+        "from test_kylin_fact \n\n" +
+        "where cal_dt >= '2012-01-01' and cal_dt < '2012-01-02' \n" +
+        "group by seller_id \n" +
+        "order by seq desc\n" +
+        "LIMIT 500"
+    ), Seq((901, 5), (902, 2)))
+  }
+
   ignore("test window funnel 000") {
     val colNames = Seq("uid", "eid", "dim1", "dim2",
       "o_dim1", "o_dim2", "o_dim3", "dim3", "dim4", "ts")
