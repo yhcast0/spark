@@ -728,6 +728,12 @@
         <scope>${hadoop.deps.scope}</scope>
       </dependency>
       <dependency>
+        <groupId>org.apache.logging.log4j</groupId>
+        <artifactId>log4j-web</artifactId>
+        <version>${log4j.version}</version>
+        <scope>${hadoop.deps.scope}</scope>
+      </dependency>
+      <dependency>
         <!-- API bridge between log4j 1 and 2 -->
         <groupId>org.apache.logging.log4j</groupId>
         <artifactId>log4j-1.2-api</artifactId>
