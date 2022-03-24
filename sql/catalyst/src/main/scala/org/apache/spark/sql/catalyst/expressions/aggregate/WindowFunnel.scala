@@ -80,7 +80,11 @@ case class WindowFunnel(windowLit: Expression,
         -1L
       case _ =>
         // timezone doesn't really matter here
-        Cast(Cast(expr, TimestampType, Some("UTC")), LongType).eval(input).toString.toLong
+        val tsColumn = Cast(Cast(expr, TimestampType, Some("UTC")), LongType).eval(input)
+        if (tsColumn == null) {
+          return expr.eval(input).toString.toLong / 1000000
+        }
+        tsColumn.toString.toLong
     }
   }
 
