@@ -35,15 +35,16 @@ import org.apache.spark.unsafe.types.UTF8String
  * @param eventTsCol event ts in long
  * @param evtConds expr to return event id (starting from 0)
  * @param dimValueExpr expr to return related dim values
+ * @param stepIdPropsArray expr to return stepId attach props array
  */
 case class WindowFunnel(windowLit: Expression,
-                        evtNumExpr: Expression,
-                        eventTsCol: Expression,
-                        evtConds: Expression,
-                        dimValueExpr: Expression,
-                        stepIdPropsArray: Expression,
-                        mutableAggBufferOffset: Int = 0,
-                        inputAggBufferOffset: Int = 0)
+                             evtNumExpr: Expression,
+                             eventTsCol: Expression,
+                             evtConds: Expression,
+                             dimValueExpr: Expression,
+                             stepIdPropsArray: Expression,
+                             mutableAggBufferOffset: Int = 0,
+                             inputAggBufferOffset: Int = 0)
   extends TypedImperativeAggregate[Seq[Event]] with Serializable with Logging {
 
   def this(windowLit: Expression,
@@ -52,7 +53,8 @@ case class WindowFunnel(windowLit: Expression,
            evtConds: Expression,
            dimValueExpr: Expression,
            stepIdPropsArray: Expression) = {
-    this(windowLit, evtNumExpr, eventTsCol, evtConds, dimValueExpr, stepIdPropsArray, 0, 0)
+    this(windowLit, evtNumExpr, eventTsCol, evtConds,
+      dimValueExpr, stepIdPropsArray, 0, 0)
   }
 
   lazy val window: Long = windowLit.eval().toString.toLong
@@ -60,13 +62,13 @@ case class WindowFunnel(windowLit: Expression,
 
   override def createAggregationBuffer(): Seq[Event] = Seq[Event]()
 
-  def toInteger(expr: Expression, input: InternalRow): Int = {
+  def toIntegerArray(expr: Expression, input: InternalRow): Array[Int] = {
     expr.dataType match {
       case _: NullType =>
-        -1
+        Array(-1)
       case _ =>
         // timezone doesn't really matter here
-        expr.eval(input).toString.toInt
+        expr.eval(input).toString.split(",").map(_.trim.toInt)
     }
   }
 
@@ -136,38 +138,43 @@ case class WindowFunnel(windowLit: Expression,
   }
 
   override def update(buffer: Seq[Event], input: InternalRow): Seq[Event] = {
-    val evtId = toInteger(evtConds, input)
-    if (evtId < 0 || evtId >= evtNum) {
-      return buffer
-    }
+    val evtIdArray = toIntegerArray(evtConds, input)
     val ts = toLong(eventTsCol, input)
     if (ts < 0) {
       return buffer
     }
     val dimValue = toString(dimValueExpr, input)
-    val stepIdAttachPropsArrayExpression = cacheEvalStepIdPropsArrayExpressionMap.get(evtId)
-    if (stepIdAttachPropsArrayExpression != null) {
-      val attachPropsNameArray = stepIdAttachPropsArrayExpression
-        .eval(input).asInstanceOf[GenericArrayData]
-      val attachPropsArray = new Array[Any](attachPropsNameArray.array.length)
-      var index = 0
-      attachPropsNameArray.array.foreach(e => {
-        val attachPropValue = e.asInstanceOf[GenericInternalRow].values.apply(1)
-        if (attachPropValue.isInstanceOf[UTF8String]) {
-          val strBuilder = new UTF8StringBuilder
-          strBuilder.append("" + attachPropValue)
-          attachPropsArray(index) = strBuilder.build()
-        } else {
-          attachPropsArray(index) = attachPropValue
-        }
-        index = index + 1
-      })
-      val event = Event(evtId, ts, dimValue, attachPropsArray)
-      buffer :+ event
-    } else {
-      val event = Event(evtId, ts, dimValue, null)
-      buffer :+ event
-    }
+    val evtIdArrayMap = new ConcurrentHashMap[Integer, Array[Any]]()
+    var hasAttach = false
+    evtIdArray.foreach(evtId => {
+      if (evtIdArray.apply(0) < 0 || evtIdArray.apply(0) >= evtNum) {
+        return buffer
+      }
+      val stepIdAttachPropsArrayExpression =
+        cacheEvalStepIdPropsArrayExpressionMap.get(evtId)
+      if (stepIdAttachPropsArrayExpression != null) {
+        hasAttach = true
+        val attachPropsNameArray = stepIdAttachPropsArrayExpression
+          .eval(input).asInstanceOf[GenericArrayData]
+        val attachPropsArray = new Array[Any](attachPropsNameArray.array.length)
+        var index = 0
+        attachPropsNameArray.array.foreach(e => {
+          val attachPropValue = e.asInstanceOf[GenericInternalRow].values.apply(1)
+          if (attachPropValue.isInstanceOf[UTF8String]) {
+            val strBuilder = new UTF8StringBuilder
+            strBuilder.append("" + attachPropValue)
+            attachPropsArray(index) = strBuilder.build()
+          } else {
+            attachPropsArray(index) = attachPropValue
+          }
+          index = index + 1
+        })
+        evtIdArrayMap.put(evtId, attachPropsArray)
+      }
+    })
+    val event = Event(evtIdArray, ts, dimValue, evtIdArrayMap, evtIdArray.apply(0))
+    buffer :+ event
+
   }
 
   override def merge(buffer: Seq[Event],
@@ -175,6 +182,7 @@ case class WindowFunnel(windowLit: Expression,
     buffer ++ input
   }
 
+  val offsetMap = new ConcurrentHashMap[String, Integer]()
   override def eval(buffer: Seq[Event]): Any = {
     if (buffer.length == 0) {
       val returnRow = new GenericInternalRow(2 + attachPropNum)
@@ -183,7 +191,28 @@ case class WindowFunnel(windowLit: Expression,
       return returnRow
     }
 
-    val grouped = buffer.groupBy(e => e.dim)
+    val newBuffer = buffer.sortBy(e => e.ts).map(e => {
+      if (e.eids.length > 1) {
+        val eidKey = e.eids.mkString("_")
+        val offset = offsetMap.get(eidKey)
+        if (offset == null) {
+          offsetMap.put(eidKey, 0)
+          e
+        } else {
+          val newOffset = offset + 1
+          if (e.eids.length <= newOffset + 1) {
+            offsetMap.put(eidKey, newOffset)
+            Event(e.eids, e.ts, e.dim, e.attachPropsArrayMap, e.eids.apply(newOffset))
+          } else {
+            Event(e.eids, e.ts, e.dim, e.attachPropsArrayMap, -1)
+          }
+        }
+      } else {
+        e
+      }
+    })
+
+    val grouped = newBuffer.groupBy(e => e.dim)
     val nullDimEvents = grouped.getOrElse(null, Seq())
 
     val result = grouped.map(e => {
@@ -228,6 +257,7 @@ case class WindowFunnel(windowLit: Expression,
     }
   }
 
+
   private def longestSeqId(events: Seq[Event]): (Int, Long, Array[Any]) = {
 
     var returnData = (-1, -1L, new Array[Any](attachPropNum))
@@ -236,34 +266,35 @@ case class WindowFunnel(windowLit: Expression,
       return returnData
     }
     val attachCurrentPropValuesMap = new util.HashMap[Long, Array[Any]]()
-    val sorted = events.sortBy(e => (e.ts, e.eid))
+    val sorted = events.sortBy(e => (e.ts, e.eids.apply(0)))
     val timestamps = Array.fill[Long](evtNum)(-1)
     var lastId = -1
-    sorted.foreach(e => {
-      if (e.eid == 0) {
+    sorted.filter(_.eid > -1).foreach(e => {
+      val eid = e.eid
+      if (eid == 0) {
         val currAttachPropsValues = new Array[Any](attachPropNum)
-        val cacheAttachProps = cacheEvalStepIdPropsArrayExpressionMap.get(e.eid)
+        val cacheAttachProps = cacheEvalStepIdPropsArrayExpressionMap.get(eid)
         if (cacheAttachProps != null) {
-          assignAttachPropValue(cacheAttachProps, currAttachPropsValues, e)
+          assignAttachPropValue(cacheAttachProps, currAttachPropsValues, e, eid)
         }
-        if (timestamps(e.eid) == -1) {
-          returnData = (e.eid, e.ts, currAttachPropsValues)
+        if (timestamps(eid) == -1) {
+          returnData = (eid, e.ts, currAttachPropsValues)
         }
-        timestamps(e.eid) = e.ts
-        attachCurrentPropValuesMap.put(timestamps(e.eid), currAttachPropsValues)
-      } else if (timestamps(e.eid -1) > -1 && timestamps(e.eid -1) + window >= e.ts) {
-        val cacheAttachProps = cacheEvalStepIdPropsArrayExpressionMap.get(e.eid)
-        if (lastId != e.eid
+        timestamps(eid) = e.ts
+        attachCurrentPropValuesMap.put(timestamps(eid), currAttachPropsValues)
+      } else if (timestamps(eid -1) > -1 && timestamps(eid -1) + window >= e.ts) {
+        val cacheAttachProps = cacheEvalStepIdPropsArrayExpressionMap.get(eid)
+        if (lastId != eid
           && cacheAttachProps != null) {
           assignAttachPropValue(cacheAttachProps,
-            attachCurrentPropValuesMap.get(timestamps(e.eid -1)), e)
+            attachCurrentPropValuesMap.get(timestamps(eid -1)), e, eid)
         }
-        lastId = e.eid
-        if (timestamps(e.eid) == -1) {
-          returnData = (e.eid, timestamps(e.eid - 1),
+        lastId = eid
+        if (timestamps(eid) == -1) {
+          returnData = (eid, timestamps(eid - 1),
             attachCurrentPropValuesMap.get(timestamps(0)))
         }
-        timestamps(e.eid) = timestamps(e.eid - 1)
+        timestamps(eid) = timestamps(eid - 1)
       }
 
       if (timestamps.last > -1) {
@@ -282,16 +313,16 @@ case class WindowFunnel(windowLit: Expression,
   }
 
   def assignAttachPropValue(cacheAttachProps: Expression,
-      currAttachPropsValues: Array[Any], e: Event): Unit = {
+                            currAttachPropsValues: Array[Any], e: Event, eid: Int): Unit = {
     for (i <- 0 until cacheAttachProps.children.length) {
       val curExpression = cacheAttachProps.children.apply(i)
       val attachPropIndex = attachPropsIndexMap.get(curExpression)
       if (currAttachPropsValues(attachPropIndex) == null) {
-        currAttachPropsValues(attachPropIndex) = e.attachPropsArray(i)
+        currAttachPropsValues(attachPropIndex) = e.attachPropsArrayMap.get(eid).apply(i)
       } else {
         for (j <- 0 until attachProps.length) {
           if (curExpression == attachProps.apply(j)) {
-            currAttachPropsValues(j) = e.attachPropsArray(i)
+            currAttachPropsValues(j) = e.attachPropsArrayMap.get(eid).apply(i)
           }
         }
       }
@@ -299,11 +330,11 @@ case class WindowFunnel(windowLit: Expression,
   }
 
   override def serialize(buffer: Seq[Event]): Array[Byte] = {
-    SerializeUtil.serialize(buffer)
+    SerializeEqualUtil.serialize(buffer)
   }
 
   override def deserialize(storageFormat: Array[Byte]): Seq[Event] = {
-    SerializeUtil.deserialize(storageFormat)
+    SerializeEqualUtil.deserialize(storageFormat)
   }
 
   override def withNewMutableAggBufferOffset(newMutableAggBufferOffset: Int): ImperativeAggregate =
@@ -332,7 +363,7 @@ case class WindowFunnel(windowLit: Expression,
         "\",\"nullable\":true,\"metadata\":{}}"
     }
     DataType.fromJson("{\"type\":\"struct\",\"fields\":[" +
-        fields +
+      fields +
       "]}")
   }
 
@@ -340,13 +371,14 @@ case class WindowFunnel(windowLit: Expression,
     windowLit :: eventTsCol :: evtNumExpr :: evtConds :: dimValueExpr :: stepIdPropsArray :: Nil
 }
 
-case class Event(eid: Int, ts: Long, dim: String, attachPropsArray: Array[Any])
+case class Event(eids: Array[Int], ts: Long, dim: String,
+                      attachPropsArrayMap: ConcurrentHashMap[Integer, Array[Any]], eid: Int)
 
-object SerializeUtil {
+object SerializeEqualUtil {
   import java.io.{ByteArrayInputStream, ByteArrayOutputStream, ObjectInputStream, ObjectOutputStream}
 
   def writeEvent(oss: ObjectOutputStream, event: Event): Unit = {
-    oss.writeInt(event.eid)
+    oss.writeObject(event.eids)
     oss.writeLong(event.ts)
     if (event.dim == null) {
       oss.writeBoolean(true)
@@ -354,16 +386,19 @@ object SerializeUtil {
       oss.writeBoolean(false)
       oss.writeUTF(event.dim)
     }
-    oss.writeObject(event.attachPropsArray)
+    oss.writeObject(event.attachPropsArrayMap)
+    oss.writeInt(event.eid)
   }
 
   def readEvent(ois: ObjectInputStream): Event = {
-    val id = ois.readInt()
+    val id = ois.readObject().asInstanceOf[Array[Int]]
     val ts = ois.readLong()
     if (ois.readBoolean()) {
-      Event(id, ts, null, ois.readObject().asInstanceOf[Array[Any]])
+      Event(id, ts, null, ois.readObject()
+        .asInstanceOf[ConcurrentHashMap[Integer, Array[Any]]], ois.readInt())
     } else {
-      Event(id, ts, ois.readUTF(), ois.readObject().asInstanceOf[Array[Any]])
+      Event(id, ts, ois.readUTF(), ois.readObject()
+        .asInstanceOf[ConcurrentHashMap[Integer, Array[Any]]], ois.readInt())
     }
   }
 
