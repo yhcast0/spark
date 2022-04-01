@@ -321,6 +321,7 @@ object FunctionRegistry {
     expression[BoolOr]("any", true),
     expression[BoolOr]("some", true),
     expression[BoolOr]("bool_or"),
+    expression[Attribution]("attribution"),
 
     // string functions
     expression[Ascii]("ascii"),

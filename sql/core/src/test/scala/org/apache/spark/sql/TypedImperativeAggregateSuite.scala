@@ -219,6 +219,215 @@ class TypedImperativeAggregateSuite extends QueryTest with SharedSparkSession {
     val max = TypedMax(column.expr, nullable = true)
     Column(max.toAggregateExpression())
   }
+
+  ignore("test attribution") {
+    val oneWeek = 604800000 // 7 * 60 * 60 * 24 * 1000
+    val colNames = Seq("uid", "eid", "dim1", "dim2", "measure1", "measure2", "ts")
+
+    // test attribution models
+    {
+      Seq(
+        (1, 1, null, null, 0, 0, 1),
+        (1, 2, null, null, 0, 0, 2),
+        (1, 3, null, null, 0, 0, 3),
+        (1, 4, null, null, 0, 0, 1 + oneWeek),
+        (1, 5, null, null, 100, 1000, 5 + oneWeek)
+      ).toDF(colNames: _*).createOrReplaceTempView("events")
+
+      val model = Seq("FIRST", "LAST", "LINEAR", "POSITION", "DECAY")
+      val contrib = Seq(
+        "[1.0];[0.0];[0.0];[0.0]"
+        , "[0.0];[0.0];[0.0];[1.0]"
+        , "[0.25];[0.25];[0.25];[0.25]"
+        , "[0.4];[0.1];[0.1];[0.4]"
+        , "[0.5];[0.5];[0.5];[1.0]"
+      )
+
+      model.zip(contrib).foreach { case (model, contrib) =>
+        val df = spark.sql(
+          "select explode(at) as event from (select attribution(604810000, ts, " +
+            buildSource(Seq(1, 2, 3, 4)) +
+            buildTarget(Seq(5)) +
+            "null," +
+            "'NONE', " +
+            "null," +
+            "array(measure1, measure2), " +
+            s"'$model', " +
+            "null) as at " +
+            "from events group by uid) order by event.name"
+        )
+        val actual = df.selectExpr("event.contrib").collect().mkString(";")
+        assert(contrib == actual)
+      }
+    }
+
+    // test measures, grouping infos
+    {
+      Seq(
+        (1, 1, "foo", "bar", 0, 0, 1),
+        (1, 2, "foo1", "bar1", 0, 0, 2),
+        (1, 3, "foo2", "bar2", 100, 1000, 3)
+      ).toDF(colNames: _*).createOrReplaceTempView("events")
+
+      val df = spark.sql(
+        "select explode(at) as event from (select attribution(604810000, ts, " +
+          buildSource(Seq(1, 2)) +
+          buildTarget(Seq(3)) +
+          "null," +
+          "'NONE', " +
+          "null," +
+          "array(measure1, measure2), " +
+          s"'LINEAR', " +
+          "array(dim1, dim2)) as at " +
+          "from events group by uid) order by event.name"
+      )
+      assert("[WrappedArray(50.0, 500.0)];[WrappedArray(50.0, 500.0)]" ==
+        df.selectExpr("event.measureContrib").collect().mkString(";"))
+      assert("[WrappedArray(foo, bar)];[WrappedArray(foo1, bar1)]" ==
+        df.selectExpr("event.groupingInfos").collect().mkString(";"))
+    }
+
+    // test source relate to target, relation build
+    {
+      Seq(
+        (1, 1, null, "foo", 0, 0, 1),
+        (1, 2, "bar", null, 0, 0, 5),
+        (1, 3, "bar", null, 0, 0, 6),
+        (1, 4, null, "foo", 0, 0, 7),
+        (1, 5, "bar", null, 100, 0, 8),
+        (1, 4, null, "bar", 0, 0, 9),
+        (1, 5, null, "foo", 1000, 0, 10)
+      ).toDF(colNames: _*).createOrReplaceTempView("events")
+
+      val sql = "select explode(at) as event from (select attribution(7, ts, " +
+        buildSource(Seq(1, 2, 3, 4)) +
+        buildTarget(Seq(5)) +
+        "null," +
+        "'TARGET_TO_SOURCE', " +
+        s"array(${buildMap(Seq("t5"), Seq("s2", "s3"), "dim1", "dim1")}," +
+        s"${buildMap(Seq("t5"), Seq("s1", "s4"), "dim2", "dim2")})," +
+        "array(measure1), " +
+        s"'LINEAR', " +
+        "null) as at " +
+        "from events group by uid) order by event.name"
+
+      val result = spark.sql(sql)
+        .selectExpr("event.name", "event.measureContrib").collect().mkString(";")
+      assert("[s2,WrappedArray(50.0)];[s3,WrappedArray(50.0)];[s4,WrappedArray(1000.0)]" == result)
+    }
+
+    // test ahead
+    {
+      Seq(
+        (1, 1, null, "foo", 0, 0, 4),
+        (1, 2, "bar", null, 0, 0, 5),
+        (1, 0, "bar", "foo", 0, 0, 6),
+        (1, 3, "bar", null, 0, 0, 7),
+        (1, 4, null, null, 0, 0, 8),
+        (1, 0, "bar", "foo", 0, 0, 9),
+        (1, 4, null, null, 0, 0, 10),
+        (1, 5, null, "foo", 100, 0, 11)
+      ).toDF(colNames: _*).createOrReplaceTempView("events")
+
+      // ahead relate to target
+      {
+        val sql = "select explode(at) as event from (select attribution(7, ts, " +
+          buildSource(Seq(1, 2, 3, 4)) +
+          buildTarget(Seq(5)) +
+          buildAhead(Seq(0)) +
+          "'TARGET_TO_AHEAD', " +
+          s"array(${buildMap(Seq("t5"), Seq("a0"), "dim2", "dim2")})," +
+          "array(measure1), " +
+          s"'LINEAR', " +
+          "null) as at " +
+          "from events group by uid) order by event.name"
+        val result = spark.sql(sql)
+          .selectExpr("event.name", "event.measureContrib").collect().mkString(";")
+        assert("[s2,WrappedArray(50.0)];[s4,WrappedArray(50.0)]" == result)
+      }
+
+      // ahead relate to source and target
+      {
+        val sql = "select explode(at) as event from (select attribution(7, ts, " +
+          buildSource(Seq(1, 2, 3, 4)) +
+          buildTarget(Seq(5)) +
+          buildAhead(Seq(0)) +
+          "'TARGET_TO_AHEAD_TO_SOURCE', " +
+          s"array(${buildMap(Seq("t5"), Seq("a0"), "dim2", "dim2")}," +
+          s"${buildMap(Seq("a0"), Seq("s1", "s2", "s3", "s4"), "dim1", "dim1")})," +
+          "array(measure1), " +
+          s"'LINEAR', " +
+          "null) as at " +
+          "from events group by uid) order by event.name"
+        val result = spark.sql(sql)
+          .selectExpr("event.name", "event.measureContrib").collect().mkString(";")
+        assert("[s2,WrappedArray(50.0)];[s3,WrappedArray(50.0)]" == result)
+      }
+    }
+
+    // mutiple seq
+    {
+      Seq(
+        (1, 1, null, "foo", 0, 0, 1),
+        (1, 0, "bar", "foo1", 0, 0, 2), // aheah foo1
+        (1, 1, null, "foo", 0, 0, 3),
+        (1, 0, "bar", "foo1", 0, 0, 4), // aheah foo1
+        (1, 2, "bar", null, 0, 0, 5),
+        (1, 0, "bar", "foo", 0, 0, 6), // aheah foo
+        (1, 3, "bar", null, 0, 0, 7),
+        (1, 4, null, null, 0, 0, 8),
+        (1, 0, "bar", "foo", 0, 0, 9), // aheah foo
+        (1, 4, null, null, 0, 0, 10),
+        (1, 5, null, "foo", 100, 0, 11),
+        (1, 5, null, "foo1", 1000, 0, 12)
+      ).toDF(colNames: _*).createOrReplaceTempView("events")
+
+      val sql = "select explode(at) as event from (select attribution(9, ts, " +
+        buildSource(Seq(1, 2, 3, 4)) +
+        buildTarget(Seq(5)) +
+        buildAhead(Seq(0)) +
+        "'TARGET_TO_AHEAD', " +
+        s"array(${buildMap(Seq("t5"), Seq("a0"), "dim2", "dim2")})," +
+        "array(measure1), " +
+        s"'LINEAR', " +
+        "null) as at " +
+        "from events group by uid) order by event.name"
+      val result = spark
+        .sql(sql).selectExpr("event.name", "event.measureContrib").collect().mkString(";")
+      assert("[s1,WrappedArray(1000.0)];[s2,WrappedArray(50.0)];[s4,WrappedArray(50.0)]" == result)
+    }
+  }
+
+  private def buildSource(eid: Seq[Int], comma: Boolean = true): String = {
+    buildCaseWhen(eid, "s", comma)
+  }
+
+  private def buildTarget(eid: Seq[Int], comma: Boolean = true): String = {
+    buildCaseWhen(eid, "t", comma)
+  }
+
+  private def buildAhead(eid: Seq[Int], comma: Boolean = true): String = {
+    buildCaseWhen(eid, "a", comma)
+  }
+
+  private def buildCaseWhen(eid: Seq[Int], prefix: String, comma: Boolean = true): String = {
+    val casewhen = "case " +
+      eid.map { i => s"when eid=$i then '$prefix$i'"}.mkString(" ") +
+      "else null end "
+    if (comma) {
+      s"$casewhen ,"
+    } else {
+      casewhen
+    }
+  }
+
+  private def buildMap(e1List: Seq[String], e2List: Seq[String],
+                       dim1: String, dim2: String): String = {
+    (for (e1 <- e1List; e2 <- e2List) yield (e1, e2)).map { case (e1, e2) =>
+      s"map('$e1', $dim1, '$e2', $dim2)"
+    }.mkString(",")
+  }
+
 }
 
 object TypedImperativeAggregateSuite {
