@@ -185,7 +185,7 @@ case class Attribution(windowLitExpr: Expression,
       } else {
         null
       }
-      val groupingInfo = evalToArray(groupingInfoExpr, input)
+      val groupingInfo = groupingInfoExpr.eval(input)
 
       eventType match {
         case AttrEvent.TARGET if measureCount > 0 =>
@@ -409,10 +409,10 @@ case class Attribution(windowLitExpr: Expression,
     new GenericArrayData(
       events.map(e =>
         if (e.measureContrib == null) {
-          InternalRow(e.utf8Name, e.contrib, null, new GenericArrayData(e.groupingInfos))
+          InternalRow(e.utf8Name, e.contrib, null, e.groupingInfos)
         } else {
           InternalRow(e.utf8Name, e.contrib,
-            new GenericArrayData(e.measureContrib), new GenericArrayData(e.groupingInfos))
+            new GenericArrayData(e.measureContrib), e.groupingInfos)
         }
       )
     )
@@ -455,7 +455,7 @@ case class AttrEvent(name: String,
                      eventType: Int,
                      ts: Long,
                      relatedDims: Array[Any],
-                     groupingInfos: Array[Any],
+                     groupingInfos: Any,
                      var contrib: Double,
                      var measureContrib: Array[Double]) {
 
