@@ -68,7 +68,8 @@ case class WindowFunnel(windowLit: Expression,
         Array(-1)
       case _ =>
         // timezone doesn't really matter here
-        expr.eval(input).toString.split(",").map(_.trim.toInt)
+        val arr = expr.eval(input).toString.split(",").map(_.trim.toInt)
+        arr
     }
   }
 
@@ -147,7 +148,7 @@ case class WindowFunnel(windowLit: Expression,
     val evtIdArrayMap = new ConcurrentHashMap[Integer, Array[Any]]()
     var hasAttach = false
     evtIdArray.foreach(evtId => {
-      if (evtIdArray.apply(0) < 0 || evtIdArray.apply(0) >= evtNum) {
+      if (evtId < 0 || evtId >= evtNum) {
         return buffer
       }
       val stepIdAttachPropsArrayExpression =
@@ -182,7 +183,6 @@ case class WindowFunnel(windowLit: Expression,
     buffer ++ input
   }
 
-  val offsetMap = new ConcurrentHashMap[String, Integer]()
   override def eval(buffer: Seq[Event]): Any = {
     if (buffer.length == 0) {
       val returnRow = new GenericInternalRow(2 + attachPropNum)
@@ -190,7 +190,7 @@ case class WindowFunnel(windowLit: Expression,
       returnRow(1) = -1L
       return returnRow
     }
-
+    val offsetMap = new ConcurrentHashMap[String, Integer]()
     val newBuffer = buffer.sortBy(e => e.ts).map(e => {
       if (e.eids.length > 1) {
         val eidKey = e.eids.mkString("_")
