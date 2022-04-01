@@ -200,7 +200,7 @@ case class WindowFunnel(windowLit: Expression,
           e
         } else {
           val newOffset = offset + 1
-          if (e.eids.length <= newOffset + 1) {
+          if (newOffset + 1 <= e.eids.length) {
             offsetMap.put(eidKey, newOffset)
             Event(e.eids, e.ts, e.dim, e.attachPropsArrayMap, e.eids.apply(newOffset))
           } else {
