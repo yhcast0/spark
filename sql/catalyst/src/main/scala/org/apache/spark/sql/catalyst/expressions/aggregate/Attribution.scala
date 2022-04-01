@@ -339,7 +339,7 @@ case class Attribution(windowLitExpr: Expression,
     // target event with no source events
     if (sourceEvents.isEmpty) {
       return Seq(
-        AttrEvent("d", AttrEvent.SOURCE, 0, Array(), Array(), 0, Array())
+        AttrEvent("d", AttrEvent.SOURCE, 0, Array(), null, 0, Array())
       )
     }
 
