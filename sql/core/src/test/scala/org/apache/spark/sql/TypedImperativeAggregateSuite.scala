@@ -21,8 +21,8 @@ import java.io.{ByteArrayInputStream, ByteArrayOutputStream, DataInputStream, Da
 
 import org.apache.spark.sql.TypedImperativeAggregateSuite.TypedMax
 import org.apache.spark.sql.catalyst.InternalRow
+import org.apache.spark.sql.catalyst.expressions.aggregate.{TypedImperativeAggregate, WindowFunnel}
 import org.apache.spark.sql.catalyst.expressions.{BoundReference, Expression, GenericInternalRow, ImplicitCastInputTypes, SpecificInternalRow}
-import org.apache.spark.sql.catalyst.expressions.aggregate.TypedImperativeAggregate
 import org.apache.spark.sql.execution.aggregate.HashAggregateExec
 import org.apache.spark.sql.expressions.Window
 import org.apache.spark.sql.functions._
@@ -426,6 +426,426 @@ class TypedImperativeAggregateSuite extends QueryTest with SharedSparkSession {
     (for (e1 <- e1List; e2 <- e2List) yield (e1, e2)).map { case (e1, e2) =>
       s"map('$e1', $dim1, '$e2', $dim2)"
     }.mkString(",")
+  }
+
+
+  private def checkWindowAnswer (df: DataFrame, expected: Seq[(Int, Int)] ): Unit = {
+    df.show (false)
+    checkAnswer (df, expected.toDF () )
+  }
+
+  ignore ("test window funnel 0002") {
+    val colNames = Seq ("event_id", "user_id", "uid", "event_time", "access_time",
+      "string1", "string2", "int1", "int2",
+      "bigint1", "bigint2", "double1", "double2", "id")
+    val df1 = Seq (
+      (0, 100000001, "200000001", "1647581938058", "1647581638051",
+        "string_1", "string_2", 1, 2, 1L, 2L, 1d, 2d, 6)
+      , (1, 100000001, "200000002", "1647581938059", "1647581638052",
+        "string_1", "string_2", 1, 2, 1L, 2L, 1d, 2d, 7)
+      , (2, 100000001, "200000003", "1647581938060", "1647581638053",
+        "string_1", "string_2", 1, 2, 1L, 2L, 1d, 2d, 8)
+      , (3, 100000001, "200000004", "1647581938061", "1647581638054",
+        "string_1", "string_2", 1, 2, 1L, 2L, 1d, 2d, 9)
+      , (4, 100000001, "200000005", "1647581938062", "1647581638055",
+        "string_1", "string_2", 1, 2, 1L, 2L, 1d, 2d, 10)
+      , (5, 100000001, "200000006", "1647581938063", "1647581638056",
+        "string_1", "string_2", 1, 2, 1L, 2L, 1d, 2d, 11)
+      , (0, 100000002, "200000007", "1647581938064", "1647581638057",
+        "string_1", "string_2", 1, 2, 1L, 2L, 1d, 2d, 12)
+      , (1, 100000002, "200000008", "1647581938065", "1647581638058",
+        "string_1", "string_2", 1, 2, 1L, 2L, 1d, 2d, 13)
+      , (2, 100000002, "200000009", "1647581938066", "1647581638059",
+        "string_1", "string_2", 1, 2, 1L, 2L, 1d, 2d, 14)
+      , (3, 100000002, "200000010", "1647581938067", "1647581638060",
+        "string_1", "string_2", 1, 2, 1L, 2L, 1d, 2d, 15)
+      , (4, 100000002, "200000011", "1647581938068", "1647581638061",
+        "string_1", "string_2", 1, 2, 1L, 2L, 1d, 2d, 16)
+      , (5, 100000002, "200000012", "1647581938069", "1647581638062",
+        "string_1", "string_2", 1, 2, 1L, 2L, 1d, 2d, 17)
+      , (0, 100000003, "200000013", "1647581938070", "1647581638063",
+        "string_1", "string_2", 1, 2, 1L, 2L, 1d, 2d, 18)
+      , (1, 100000003, "200000014", "1647581938071", "1647581638064",
+        "string_1", "string_2", 1, 2, 1L, 2L, 1d, 2d, 19)
+      , (2, 100000003, "200000015", "1647581938072", "1647581638065",
+        "string_1", "string_2", 1, 2, 1L, 2L, 1d, 2d, 20)
+      , (3, 100000003, "200000016", "1647581938073", "1647581638066",
+        "string_1", "string_2", 1, 2, 1L, 2L, 1d, 2d, 21)
+      , (4, 100000003, "200000017", "1647581938074", "1647581638067",
+        "string_1", "string_2", 1, 2, 1L, 2L, 1d, 2d, 22)
+      , (5, 100000003, "200000018", "1647581938075", "1647581638068",
+        "string_1", "string_2", 1, 2, 1L, 2L, 1d, 2d, 23)
+      , (0, 100000004, "200000019", "1647581938076", "1647581638069",
+        "string_1", "string_2", 1, 2, 1L, 2L, 1d, 2d, 24)
+      , (1, 100000004, "200000020", "1647581938077", "1647581638070",
+        "string_1", "string_2", 1, 2, 1L, 2L, 1d, 2d, 25)
+      , (2, 100000004, "200000021", "1647581938078", "1647581638071",
+        "string_1", "string_2", 1, 2, 1L, 2L, 1d, 2d, 26)
+      , (3, 100000004, "200000022", "1647581938079", "1647581638072",
+        "string_1", "string_2", 1, 2, 1L, 2L, 1d, 2d, 27)
+      , (4, 100000004, "200000023", "1647581938080", "1647581638073",
+        "string_1", "string_2", 1, 2, 1L, 2L, 1d, 2d, 28)
+      , (5, 100000004, "200000024", "1647581938081", "1647581638074",
+        "string_1", "string_2", 1, 2, 1L, 2L, 1d, 2d, 29)
+      , (0, 100000005, "200000025", "1647581938082", "1647581638075",
+        "string_1", "string_2", 1, 2, 1L, 2L, 1d, 2d, 30)
+      , (1, 100000005, "200000026", "1647581938083", "1647581638076",
+        "string_1", "string_2", 1, 2, 1L, 2L, 1d, 2d, 31)
+      , (2, 100000005, "200000027", "1647581938084", "1647581638077",
+        "string_1", "string_2", 1, 2, 1L, 2L, 1d, 2d, 32)
+      , (3, 100000005, "200000028", "1647581938085", "1647581638078",
+        "string_1", "string_2", 1, 2, 1L, 2L, 1d, 2d, 33)
+      , (4, 100000005, "200000029", "1647581938086", "1647581638079",
+        "string_1", "string_2", 1, 2, 1L, 2L, 1d, 2d, 34)
+      , (5, 100000005, "200000030", "1647581938087", "1647581638080",
+        "string_1", "string_2", 1, 2, 1L, 2L, 1d, 2d, 35)
+    ).toDF (colNames: _*)
+    df1.createOrReplaceTempView ("events1")
+    checkWindowAnswer (spark.sql (
+      "select user_id, window_funnel(\n" +
+        " 5 * 24 * 60 * 60,\n" +
+        " 6,\n" +
+        " event_time,\n" +
+        " case when event_id = 0 or event_id = 2 then '0, 2'\n" +
+        " when event_id = 1 then '1'\n" +
+        " when event_id = 3 then '3'\n" +
+        " else -1 end,\n" +
+        " bigint1,\n" +
+        " struct(struct(2, user_id), struct(1, id), struct(3, id)) ) seq\n" +
+        "from events1\n" +
+        "where id >=6 and id <=35\n" +
+        "group by user_id\n" +
+        "order by seq desc\n" +
+        "LIMIT 500"
+    ), Seq ((901, 5), (902, 2) ) )
+  }
+
+  ignore ("test window funnel 0001") {
+    val colNames = Seq ("event_id", "user_id", "uid", "event_time", "access_time",
+      "string1", "string2", "int1", "int2",
+      "bigint1", "bigint2", "double1", "double2", "id")
+    val df1 = Seq (
+      (0, 100000001, "200000001", "1647581938058", "1647581638051",
+        "string_1", "string_2", 1, 2, 1L, 2L, 1d, 2d, 6)
+      , (1, 100000001, "200000002", "1647581938059", "1647581638052",
+        "string_1", "string_2", 1, 2, 1L, 2L, 1d, 2d, 7)
+      , (0, 100000001, "200000003", "1647581938060", "1647581638053",
+        "string_1", "string_2", 1, 2, 1L, 2L, 1d, 2d, 8)
+      , (3, 100000001, "200000004", "1647581938061", "1647581638054",
+        "string_1", "string_2", 1, 2, 1L, 2L, 1d, 2d, 9)
+      , (4, 100000001, "200000005", "1647581938062", "1647581638055",
+        "string_1", "string_2", 1, 2, 1L, 2L, 1d, 2d, 10)
+      , (5, 100000001, "200000006", "1647581938063", "1647581638056",
+        "string_1", "string_2", 1, 2, 1L, 2L, 1d, 2d, 11)
+      , (0, 100000002, "200000007", "1647581938064", "1647581638057",
+        "string_1", "string_2", 1, 2, 1L, 2L, 1d, 2d, 12)
+      , (1, 100000002, "200000008", "1647581938065", "1647581638058",
+        "string_1", "string_2", 1, 2, 1L, 2L, 1d, 2d, 13)
+      , (0, 100000002, "200000009", "1647581938066", "1647581638059",
+        "string_1", "string_2", 1, 2, 1L, 2L, 1d, 2d, 14)
+      , (3, 100000002, "200000010", "1647581938067", "1647581638060",
+        "string_1", "string_2", 1, 2, 1L, 2L, 1d, 2d, 15)
+      , (4, 100000002, "200000011", "1647581938068", "1647581638061",
+        "string_1", "string_2", 1, 2, 1L, 2L, 1d, 2d, 16)
+      , (5, 100000002, "200000012", "1647581938069", "1647581638062",
+        "string_1", "string_2", 1, 2, 1L, 2L, 1d, 2d, 17)
+      , (0, 100000003, "200000013", "1647581938070", "1647581638063",
+        "string_1", "string_2", 1, 2, 1L, 2L, 1d, 2d, 18)
+      , (1, 100000003, "200000014", "1647581938071", "1647581638064",
+        "string_1", "string_2", 1, 2, 1L, 2L, 1d, 2d, 19)
+      , (0, 100000003, "200000015", "1647581938072", "1647581638065",
+        "string_1", "string_2", 1, 2, 1L, 2L, 1d, 2d, 20)
+      , (3, 100000003, "200000016", "1647581938073", "1647581638066",
+        "string_1", "string_2", 1, 2, 1L, 2L, 1d, 2d, 21)
+      , (4, 100000003, "200000017", "1647581938074", "1647581638067",
+        "string_1", "string_2", 1, 2, 1L, 2L, 1d, 2d, 22)
+      , (5, 100000003, "200000018", "1647581938075", "1647581638068",
+        "string_1", "string_2", 1, 2, 1L, 2L, 1d, 2d, 23)
+    ).toDF (colNames: _*)
+    df1.createOrReplaceTempView ("events1")
+    checkWindowAnswer (spark.sql (
+      "select user_id, window_funnel(\n" +
+        " 5 * 24 * 60 * 60,\n" +
+        " 6,\n" +
+        " event_time,\n" +
+        // " case when event_id = 0 or event_id = 2 then '0, 2'\n" +
+        " case when event_id = 0 then '0, 2'\n" +
+        " when event_id = 1 then '1'\n" +
+        // " when event_id = 2 then '2'\n" +
+        " when event_id = 3 then '3'\n" +
+        // " when event_id = 4 then '4'\n" +
+        // " when event_id = 5 then '5'\n" +
+        " else -1 end, \n" +
+        // " cast(event_id as char),\n" +
+        // " event_id,\n" +
+        // " array(0, 1, 0),\n" +
+        " bigint1,\n" +
+        " struct(struct(2, user_id), struct(1, id), struct(3, id))\n ) seq\n" +
+        "from events1\n" +
+        "group by user_id\n" +
+        "order by seq desc\n" +
+        "LIMIT 500"
+    ), Seq ((901, 5), (902, 2) ) )
+  }
+
+  ignore ("test window funnel 0000") {
+    val colNames = Seq ("event_id", "user_id", "uid", "event_time", "access_time",
+      "string1", "string2", "int1", "int2",
+      "bigint1", "bigint2", "double1", "double2", "id")
+    val df1 = Seq (
+      (0, 100000001, "200000001", "1647581938058", "1647581638051",
+        "string_1", "string_2", 1, 2, 1L, 2L, 1d, 2d, 6)
+      , (1, 100000001, "200000002", "1647581938059", "1647581638052",
+        "string_1", "string_2", 1, 2, 1L, 2L, 1d, 2d, 7)
+      , (2, 100000001, "200000003", "1647581938060", "1647581638053",
+        "string_1", "string_2", 1, 2, 1L, 2L, 1d, 2d, 8)
+      , (3, 100000001, "200000004", "1647581938061", "1647581638054",
+        "string_1", "string_2", 1, 2, 1L, 2L, 1d, 2d, 9)
+      , (4, 100000001, "200000005", "1647581938062", "1647581638055",
+        "string_1", "string_2", 1, 2, 1L, 2L, 1d, 2d, 10)
+      , (5, 100000001, "200000006", "1647581938063", "1647581638056",
+        "string_1", "string_2", 1, 2, 1L, 2L, 1d, 2d, 11)
+      , (0, 100000002, "200000007", "1647581938064", "1647581638057",
+        "string_1", "string_2", 1, 2, 1L, 2L, 1d, 2d, 12)
+      , (1, 100000002, "200000008", "1647581938065", "1647581638058",
+        "string_1", "string_2", 1, 2, 1L, 2L, 1d, 2d, 13)
+      , (2, 100000002, "200000009", "1647581938066", "1647581638059",
+        "string_1", "string_2", 1, 2, 1L, 2L, 1d, 2d, 14)
+      , (3, 100000002, "200000010", "1647581938067", "1647581638060",
+        "string_1", "string_2", 1, 2, 1L, 2L, 1d, 2d, 15)
+      , (4, 100000002, "200000011", "1647581938068", "1647581638061",
+        "string_1", "string_2", 1, 2, 1L, 2L, 1d, 2d, 16)
+      , (5, 100000002, "200000012", "1647581938069", "1647581638062",
+        "string_1", "string_2", 1, 2, 1L, 2L, 1d, 2d, 17)
+      , (0, 100000003, "200000013", "1647581938070", "1647581638063",
+        "string_1", "string_2", 1, 2, 1L, 2L, 1d, 2d, 18)
+      , (1, 100000003, "200000014", "1647581938071", "1647581638064",
+        "string_1", "string_2", 1, 2, 1L, 2L, 1d, 2d, 19)
+      , (2, 100000003, "200000015", "1647581938072", "1647581638065",
+        "string_1", "string_2", 1, 2, 1L, 2L, 1d, 2d, 20)
+      , (3, 100000003, "200000016", "1647581938073", "1647581638066",
+        "string_1", "string_2", 1, 2, 1L, 2L, 1d, 2d, 21)
+      , (4, 100000003, "200000017", "1647581938074", "1647581638067",
+        "string_1", "string_2", 1, 2, 1L, 2L, 1d, 2d, 22)
+      , (5, 100000003, "200000018", "1647581938075", "1647581638068",
+        "string_1", "string_2", 1, 2, 1L, 2L, 1d, 2d, 23)
+    ).toDF (colNames: _*)
+    df1.createOrReplaceTempView ("events1")
+    checkWindowAnswer (spark.sql (
+      "select user_id, window_funnel(\n" +
+        " 5 * 24 * 60 * 60,\n" +
+        " 6,\n" +
+        " event_time,\n" +
+        " event_id,\n" +
+        " bigint1,\n" +
+        " struct(struct(2, user_id), struct(1, id))\n ) seq\n" +
+        "from events1\n" +
+        "group by user_id\n" +
+        "order by seq desc\n" +
+        "LIMIT 500"
+    ), Seq ((901, 5), (902, 2) ) )
+  }
+
+  ignore ("test window funnel 001") {
+    val colNames = Seq ("lstg_format_name", "cal_dt", "lstg_site_id",
+      "seller_id", "trans_id")
+
+    val df1 = Seq (
+      ("ABIN", "2012-01-01", 0, 10000294, 0)
+      , ("FP-non GTC", "2012-01-01", 0, 10000294, 1)
+      , ("Others", "2012-01-01", 0, 10000294, 2)
+      , ("Auction", "2012-01-01", 0, 10000294, 3)
+      , ("ABIN", "2012-01-01", 1, 10000294, 0)
+      , ("FP-non GTC", "2012-01-01", 1, 10000294, 1)
+      , ("Others", "2012-01-01", 1, 10000294, 2)
+      , ("Auction", "2012-01-01", 0, 10000403, 4)
+      , ("FP-non GTC", "2012-01-01", 15, 10000397, 5)
+      , ("Auction", "2012-01-01", 0, 10000025, 6)
+      , ("FP-GTC", "2012-01-01", 0, 10000670, 7)
+      , ("FP-non GTC", "2012-01-01", 0, 10000288, 8)
+      , ("FP-non GTC", "2012-01-01", 0, 10000753, 9)
+      , ("Others", "2012-01-01", 0, 10000117, 10)
+      , ("FP-non GTC", "2012-01-01", 0, 10000392, 11)
+      , ("FP-non GTC", "2012-01-01", 0, 10000207, 12)
+      , ("ABIN", "2012-01-01", 0, 10000896, 13)
+      , ("ABIN", "2012-01-01", 23, 10000527, 14)
+      , ("FP-GTC", "2012-01-01", 3, 10000549, 15)
+      , ("ABIN", "2012-01-01", 3, 10000081, 16)
+    ).toDF (colNames: _*)
+    df1.createOrReplaceTempView ("test_kylin_fact")
+    checkWindowAnswer (spark.sql (
+      "select seller_id," +
+        " window_funnel(\n 5 * 24 * 60 * 60, \n" +
+        " 4, \n" +
+        " cal_dt, \n" +
+        " case when lstg_format_name = 'ABIN' then 0\n" +
+        " when lstg_format_name = 'FP-non GTC' then 1\n" +
+        " when lstg_format_name = 'Others' then 2\n" +
+        " when lstg_format_name = 'Auction' then 3\n" +
+        " else -1 end, \n" +
+        " case when lstg_format_name = 'ABIN' then lstg_site_id\n" +
+        " when lstg_format_name = 'FP-non GTC' then lstg_site_id\n" +
+        " when lstg_format_name = 'Others' then lstg_site_id\n" +
+        " when lstg_format_name = 'Auction' then lstg_site_id\n" +
+        " else null end,\n" +
+        " struct(struct(1, seller_id), struct(3, trans_id)) \n ) seq\n" +
+        "from test_kylin_fact \n\n" +
+        "where cal_dt >= '2012-01-01' and cal_dt < '2012-01-02' \n" +
+        "group by seller_id \n" +
+        "order by seq desc\n" +
+        "LIMIT 500"
+    ), Seq ((901, 5), (902, 2) ) )
+  }
+
+  ignore ("test window funnel 000") {
+    val colNames = Seq ("uid", "eid", "dim1", "dim2",
+      "o_dim1", "o_dim2", "o_dim3", "dim3", "dim4", "ts")
+
+    val df1 = Seq (
+      (901, 1, "null1", "aa1", 1L, 2.1d, 0.1f, null, null, "2021-01-02")
+      , (901, 2, "null2", "aa2", 2L, 2.2d, 0.2f, null, null, "2021-01-02")
+      , (901, 3, "null3", "aa3", 3L, 2.3d, 0.3f, null, null, "2021-01-03")
+      , (901, 4, "null4", "aa4", 4L, 2.41d, 0.41f, null, null, "2021-01-03")
+      , (901, 4, "null4", "aa4", 4L, 2.42d, 0.42f, null, null, "2021-01-04")
+      , (901, 5, "null5", "aa5", 5L, 2.5d, 0.5f, null, null, "2021-01-05")
+      , (901, 1, "w0001", "888", 11L, 3.1d, 0.6f, null, null, "2021-01-02")
+      , (901, 2, "w0002", "bb7", 12L, 3.2d, 0.7f, null, null, "2021-01-03")
+      , (901, 3, "w0003", "bb8", 13L, 3.3d, 0.8f, null, null, "2021-01-04")
+      , (901, 6, "null6", "aa6", 6L, 2.6d, 0.6f, null, null, "2021-01-05")
+      , (902, 1, "ee001", "cc1", 21L, 4.1d, 0.9f, null, null, "2021-01-02")
+      , (902, 2, "ee002", "cc2", 22L, 4.2d, 0.11f, null, null, "2021-01-03")
+      , (902, 3, "ee003", "cc3", 23L, 4.3d, 0.12f, null, null, "2021-01-03")
+      , (902, 4, "ee004", "cc4", 24L, 4.4d, 0.13f, null, null, "2021-01-04")
+      , (902, 5, "ee005", "cc5", 25L, 4.5d, 0.14f, null, null, "2021-01-05")
+    ).toDF (colNames: _*)
+    df1.createOrReplaceTempView ("events00")
+    checkWindowAnswer (spark.sql (
+      "select uid, " +
+        "window_funnel(100000, 6, ts, eid - 1, dim3, " +
+        "struct(struct(1,eid),struct(2,dim1),struct(1,eid)" +
+        ",struct(2,dim2),struct(2,dim2)" +
+        ",struct(3,o_dim1),struct(3,o_dim2),struct(3,o_dim3),struct(3,dim4)" +
+        "))" +
+        " from events00 group by uid"), Seq ((901, 5), (902, 2) ) )
+  }
+
+  // ignore("test window funnel") {
+  ignore ("test window funnel") {
+    val colNames = Seq ("uid", "eid", "dim1", "dim2",
+      "o_dim1", "o_dim2", "o_dim3", "dim3", "ts")
+
+    val df1 = Seq (
+      // "uid", "eid", "dim1", "dim2", "dim3", "ts"
+      // single sequence
+      (901, 1, "null1", "aa1", 1L, 2.1d, 0.1f, null, 1646364222007L)
+      , (901, 2, "null2", "aa2", 2L, 2.2d, 0.2f, null, 1646364236022L)
+      , (901, 3, "null3", "aa3", 3L, 2.3d, 0.3f, null, 1646364251414L)
+      , (901, 4, "null4", "aa4", 4L, 2.41d, 0.41f, null, 1646364263738L)
+      , (901, 4, "null4", "aa4", 4L, 2.42d, 0.42f, null, 1646364263739L)
+      , (901, 5, "null5", "aa5", 5L, 2.5d, 0.5f, null, 1646364273238L)
+      , (901, 1, "w0001", "888", 11L, 3.1d, 0.6f, null, 1600001L)
+      , (901, 2, "w0002", "bb7", 12L, 3.2d, 0.7f, null, 1600002L)
+      , (901, 3, "w0003", "bb8", 13L, 3.3d, 0.8f, null, 1600003L)
+      , (901, 6, "null6", "aa6", 6L, 2.6d, 0.6f, null, 1646364273998L)
+      , (902, 1, "ee001", "cc1", 21L, 4.1d, 0.9f, null, 1001L)
+      , (902, 2, "ee002", "cc2", 22L, 4.2d, 0.11f, null, 1002L)
+      , (902, 3, "ee003", "cc3", 23L, 4.3d, 0.12f, null, 1003L)
+      , (902, 4, "ee004", "cc4", 24L, 4.4d, 0.13f, null, 1004L)
+      , (902, 5, "ee005", "cc5", 25L, 4.5d, 0.14f, null, 1005L)
+    ).toDF (colNames: _*)
+    df1.createOrReplaceTempView ("events00")
+    checkWindowAnswer (spark.sql (
+      "select uid, " +
+        "window_funnel(100000, 6, ts, eid - 1, dim3, " +
+        "struct(struct(1,eid),struct(2,dim1),struct(1,eid)" +
+        ",struct(2,dim2),struct(2,dim2)" +
+        ",struct(3,o_dim1),struct(3,o_dim2),struct(3,o_dim3)" +
+        "))" +
+        " from events00 group by uid"), Seq ((901, 5), (902, 2) ) )
+
+    val df2 = Seq (
+      // "uid", "eid", "dim1", "dim2", "ts"
+      // multiple sequence
+      (901, 1, null, null, 1)
+      , (901, 2, null, null, 2)
+      , (901, 1, null, null, 3)
+      , (901, 3, null, null, 4)
+      , (901, 1, null, null, 5)
+      , (901, 2, null, null, 6)
+      , (901, 4, null, null, 7)
+      , (901, 5, null, null, 11)
+    ).toDF (colNames: _*)
+    df2.createOrReplaceTempView ("events")
+    checkWindowAnswer (spark.sql ("select uid, window_funnel(10, 5, ts, eid - 1, null)" +
+      " from events group by uid"), Seq ((901, 5) ) )
+
+    val df3 = Seq (
+      // "uid", "eid", "dim1", "dim2", "ts"
+      // multiple sequence with dim
+      (901, 1, "CN", null, 1)
+      , (901, 2, null, null, 2)
+      , (901, 1, null, null, 3)
+      , (901, 3, null, "CN", 4)
+      , (901, 1, null, null, 5)
+      , (901, 2, null, null, 6)
+      , (901, 4, null, "CN", 7)
+      , (901, 5, null, null, 8)
+      // multiple sequence with dim
+      , (902, 1, "CN", null, 1)
+      , (902, 2, null, null, 2)
+      , (902, 1, null, null, 3)
+      , (902, 3, null, "CN", 4)
+      , (902, 1, null, null, 5)
+      , (902, 2, null, null, 6)
+      , (902, 4, null, "US", 7)
+      , (902, 5, null, null, 8)
+    ).toDF (colNames: _*)
+    df3.createOrReplaceTempView ("events")
+    checkWindowAnswer (spark.sql (
+      "select uid, window_funnel(10, 5, ts, eid - 1, " +
+        "case when eid = 1 then dim1 " +
+        "when eid = 2 then null " +
+        "when eid = 3 then dim2 " +
+        "when eid = 4 then dim2 " +
+        "else null end) from events group by uid"),
+      Seq ((901, 5), (902, 3) ) )
+  }
+
+  ignore ("test window funnel radnom") {
+    val events = (0 until 1000000).map {
+      _ =>
+        (random.nextInt (100000) + 1, // uid
+          random.nextInt (5) + 1, // evt id 1-5
+          "dim_" + random.nextInt (100), // dim col1 0-2
+          "dim_" + random.nextInt (100), // dim col2 0-2
+          random.nextInt (1000), // ts
+        )
+    }
+    val df = events.toDF ("uid", "eid", "dim1", "dim2", "ts")
+    // println(s"generated")
+
+    //    df.orderBy("uid").show(100, false)
+
+    val wf = WindowFunnel (
+      lit (100).expr,
+      lit (5).expr,
+      Column ("ts").expr,
+      Column ("eid").expr,
+      lit (null).expr,
+      null
+    ).toAggregateExpression ()
+
+    println (s"started")
+    (0 until 5).foreach {
+      _ =>
+        val agg = df.groupBy ("uid").agg (Column (wf) )
+        val started = System.currentTimeMillis ()
+        val result = agg.collect ()
+        assert (result != null)
+        println (s">>>>> collected ${
+          System.currentTimeMillis () - started
+        }ms")
+    }
   }
 
 }
