@@ -190,9 +190,10 @@ case class WindowFunnel(windowLit: Expression,
       returnRow(1) = -1L
       return returnRow
     }
+    val containsEqualEvent = buffer.filter(_.eids.length > 1).length > 0
     val offsetMap = new ConcurrentHashMap[String, Integer]()
     val newBuffer = buffer.sortBy(e => e.ts).map(e => {
-      if (e.eids.length > 1) {
+      if (containsEqualEvent) {
         val eidKey = e.eids.mkString("_")
         val offset = offsetMap.get(eidKey)
         if (offset == null) {
