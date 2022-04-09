@@ -202,7 +202,7 @@ class HadoopTableReader(
               path.toString + tails
             }
 
-            val partPath = partition.getDataLocation
+            var partPath = partition.getDataLocation
             val partNum = Utilities.getPartitionDesc(partition).getPartSpec.size()
             val pathPatternStr = getPathPatternByPath(partNum, partPath)
             if (!pathPatternSet.contains(pathPatternStr)) {
@@ -217,7 +217,7 @@ class HadoopTableReader(
     val hivePartitionRDDs = verifyPartitionPath(partitionToDeserializer)
       .map { case (partition, partDeserializer) =>
       val partDesc = Utilities.getPartitionDesc(partition)
-      val partPath = partition.getDataLocation
+      var partPath = partition.getDataLocation
       val inputPathStr = applyFilterIfNeeded(partPath, filterOpt)
       val skipHeaderLineCount =
           tableDesc.getProperties.getProperty("skip.header.line.count", "0").toInt

@@ -799,6 +799,12 @@ object SQLConf {
     .intConf
     .createWithDefault(4096)
 
+  val PARQUET_COLUMN_NAME_CHECK_ENABLED = buildConf("spark.sql.parquet.columnNameCheck.enabled")
+    .doc("Parquet Column Name Check.")
+    .version("3.1.1")
+    .booleanConf
+    .createWithDefault(true)
+
   val ORC_COMPRESSION = buildConf("spark.sql.orc.compression.codec")
     .doc("Sets the compression codec used when writing ORC files. If either `compression` or " +
       "`orc.compress` is specified in the table-specific options/properties, the precedence " +
@@ -1173,6 +1179,14 @@ object SQLConf {
     .version("2.0.0")
     .intConf
     .createWithDefault(100)
+
+  val MAX_COLLECT_SIZE = buildConf("spark.sql.driver.maxCollectSize")
+    .doc("If specified then its value will be used for limiting the total size of " +
+      "uncompressed results of all partitions for each Spark action (e.g. collect). " +
+      "This is similar to spark.driver.maxResultSize but it enforces the limit on the " +
+      "uncompressed result. Specifying this can help protect the driver from out-of-memory errors.")
+    .bytesConf(ByteUnit.BYTE)
+    .createOptional
 
   val CODEGEN_FACTORY_MODE = buildConf("spark.sql.codegen.factoryMode")
     .doc("This config determines the fallback behavior of several codegen generators " +
@@ -3052,12 +3066,15 @@ object SQLConf {
       .stringConf
       .createWithDefault(null)
 
-  val TEMP_VIEW_DATABASE_ENABLED =
-    buildConf("spark.sql.tempView.database.enabled")
-      .internal()
-      .doc("When false, it is not allowed to add database prefix for the TEMPORARY view name.")
+  val HIVE_SPECIFIC_FS_LOCATION =
+    buildConf("spark.sql.hive.specific.fs.location")
+      .stringConf
+      .createWithDefault(null)
+
+  val VIEW_CACHE_ENABLE =
+    buildConf("spark.sql.view-cache-enabled")
       .booleanConf
-      .createWithDefault(false)
+      .createWithDefault(true)
 
   val VIEW_TRUNCATE_ENABLE =
     buildConf("spark.sql.view-truncate-enabled")
@@ -3268,6 +3285,8 @@ class SQLConf extends Serializable with Logging {
 
   def parquetVectorizedReaderBatchSize: Int = getConf(PARQUET_VECTORIZED_READER_BATCH_SIZE)
 
+  def parquetColumnNameCheckEnabled: Boolean = getConf(PARQUET_COLUMN_NAME_CHECK_ENABLED)
+
   def columnBatchSize: Int = getConf(COLUMN_BATCH_SIZE)
 
   def cacheVectorizedReaderEnabled: Boolean = getConf(CACHE_VECTORIZED_READER_ENABLED)
@@ -3281,6 +3300,8 @@ class SQLConf extends Serializable with Logging {
       defaultNumShufflePartitions
     }
   }
+
+  def maxCollectSize: Option[Long] = getConf(SQLConf.MAX_COLLECT_SIZE)
 
   def adaptiveExecutionEnabled: Boolean = getConf(ADAPTIVE_EXECUTION_ENABLED)
 
@@ -3669,6 +3690,8 @@ class SQLConf extends Serializable with Logging {
 
   def setOpsPrecedenceEnforced: Boolean = getConf(SQLConf.LEGACY_SETOPS_PRECEDENCE_ENABLED)
 
+  def isViewCacheEnable: Boolean = getConf(SQLConf.VIEW_CACHE_ENABLE)
+
   def isViewTruncateEnable: Boolean = getConf(SQLConf.VIEW_TRUNCATE_ENABLE)
 
   def exponentLiteralAsDecimalEnabled: Boolean =
@@ -3726,7 +3749,7 @@ class SQLConf extends Serializable with Logging {
 
   def defaultDataBase: String = getConf(SQLConf.DEFAULT_DATABASE_NAME)
 
-  def tempViewDatabaseEnabled: Boolean = getConf(TEMP_VIEW_DATABASE_ENABLED)
+  def specificHiveFsLocation: String = getConf(SQLConf.HIVE_SPECIFIC_FS_LOCATION)
 
   /** ********************** SQLConf functionality methods ************ */
 
