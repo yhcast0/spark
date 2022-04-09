@@ -434,7 +434,7 @@ class TypedImperativeAggregateSuite extends QueryTest with SharedSparkSession {
     checkAnswer (df, expected.toDF () )
   }
 
-  ignore ("test window funnel 0002") {
+  test ("test window funnel 0002") {
     val colNames = Seq ("event_id", "user_id", "uid", "event_time", "access_time",
       "string1", "string2", "int1", "int2",
       "bigint1", "bigint2", "double1", "double2", "id")
@@ -509,7 +509,7 @@ class TypedImperativeAggregateSuite extends QueryTest with SharedSparkSession {
         " case when event_id = 0 or event_id = 2 then '0, 2'\n" +
         " when event_id = 1 then '1'\n" +
         " when event_id = 3 then '3'\n" +
-        " else -1 end,\n" +
+        " else '4,5' end,\n" +
         " bigint1,\n" +
         " struct(struct(2, user_id), struct(1, id), struct(3, id)) ) seq\n" +
         "from events1\n" +

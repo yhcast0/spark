@@ -17,16 +17,20 @@
 
 package org.apache.spark.sql.catalyst.expressions.aggregate
 
+import java.nio.ByteBuffer
 import java.util
 import java.util.concurrent.ConcurrentHashMap
 
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.catalyst.InternalRow
+import org.apache.spark.sql.catalyst.expressions.objects.SerializerSupport
 import org.apache.spark.sql.catalyst.expressions.{Cast, CreateArray, CreateNamedStruct, Expression, GenericInternalRow, Literal}
 import org.apache.spark.sql.catalyst.util.GenericArrayData
 import org.apache.spark.sql.types._
 import org.apache.spark.unsafe.UTF8StringBuilder
 import org.apache.spark.unsafe.types.UTF8String
+
+import scala.util.control.Breaks.{break, breakable}
 
 
 /**
@@ -45,7 +49,9 @@ case class WindowFunnel(windowLit: Expression,
                         stepIdPropsArray: Expression,
                         mutableAggBufferOffset: Int = 0,
                         inputAggBufferOffset: Int = 0)
-  extends TypedImperativeAggregate[Seq[Event]] with Serializable with Logging {
+  extends TypedImperativeAggregate[Seq[Event]]
+    with Serializable with Logging
+    with SerializerSupport {
 
   def this(windowLit: Expression,
            evtNumExpr: Expression,
@@ -57,6 +63,7 @@ case class WindowFunnel(windowLit: Expression,
       dimValueExpr, stepIdPropsArray, 0, 0)
   }
 
+  val kryo: Boolean = true
   lazy val window: Long = windowLit.eval().toString.toLong
   lazy val evtNum: Int = evtNumExpr.eval().toString.toInt
 
@@ -100,6 +107,23 @@ case class WindowFunnel(windowLit: Expression,
     }
   }
 
+  val hasEqualEvent = {
+    val conditions = evtConds.children
+    val conditionsLen = conditions.length
+    var result = false
+    breakable {
+      for (i <- 0 until conditionsLen) {
+        if (i % 2 == 1 || i == conditionsLen -1) {
+          val value = conditions.apply(i)
+          if (value.isInstanceOf[Literal] && value.toString.contains(",")) {
+            result = true
+            break
+          }
+        }
+      }
+    }
+    result
+  }
   val attachProps = stepIdPropsArray.children
     .filter(e => e.isInstanceOf[CreateNamedStruct])
   val attachPropsIndexMap = {
@@ -331,11 +355,11 @@ case class WindowFunnel(windowLit: Expression,
   }
 
   override def serialize(buffer: Seq[Event]): Array[Byte] = {
-    SerializeEqualUtil.serialize(buffer)
+    serializerInstance.serialize(buffer).array()
   }
 
   override def deserialize(storageFormat: Array[Byte]): Seq[Event] = {
-    SerializeEqualUtil.deserialize(storageFormat)
+    serializerInstance.deserialize(ByteBuffer.wrap(storageFormat))
   }
 
   override def withNewMutableAggBufferOffset(newMutableAggBufferOffset: Int): ImperativeAggregate =
@@ -372,61 +396,14 @@ case class WindowFunnel(windowLit: Expression,
     windowLit :: eventTsCol :: evtNumExpr :: evtConds :: dimValueExpr :: stepIdPropsArray :: Nil
 }
 
-case class Event(eids: Array[Int], ts: Long, dim: String,
-                 attachPropsArrayMap: ConcurrentHashMap[Integer, Array[Any]], eid: Int)
+// scalastyle:off
+case class Event(eids: Array[Int],
+                 ts: Long,
+                 dim: String,
+                 attachPropsArrayMap: ConcurrentHashMap[Integer, Array[Any]],
+                 eid: Int) {
+  def typeOrdering: Long = ts
 
-object SerializeEqualUtil {
-  import java.io.{ByteArrayInputStream, ByteArrayOutputStream, ObjectInputStream, ObjectOutputStream}
-
-  def writeEvent(oss: ObjectOutputStream, event: Event): Unit = {
-    oss.writeObject(event.eids)
-    oss.writeLong(event.ts)
-    if (event.dim == null) {
-      oss.writeBoolean(true)
-    } else {
-      oss.writeBoolean(false)
-      oss.writeUTF(event.dim)
-    }
-    oss.writeObject(event.attachPropsArrayMap)
-    oss.writeInt(event.eid)
-  }
-
-  def readEvent(ois: ObjectInputStream): Event = {
-    val id = ois.readObject().asInstanceOf[Array[Int]]
-    val ts = ois.readLong()
-    if (ois.readBoolean()) {
-      Event(id, ts, null, ois.readObject()
-        .asInstanceOf[ConcurrentHashMap[Integer, Array[Any]]], ois.readInt())
-    } else {
-      Event(id, ts, ois.readUTF(), ois.readObject()
-        .asInstanceOf[ConcurrentHashMap[Integer, Array[Any]]], ois.readInt())
-    }
-  }
-
-  def serialize(events: Seq[Event]): Array[Byte] = {
-    try {
-      val baos = new ByteArrayOutputStream
-      val oos = new ObjectOutputStream(baos)
-      oos.writeInt(events.length)
-      events.foreach(e => writeEvent(oos, e))
-      oos.flush()
-      val bytes = baos.toByteArray
-      bytes
-    } catch {
-      case e: Exception =>
-        throw new RuntimeException("serialize failed", e)
-    }
-  }
-
-  def deserialize(bytes: Array[Byte]): Seq[Event] = {
-    try {
-      val bais = new ByteArrayInputStream(bytes)
-      val ois = new ObjectInputStream(bais)
-      val size = ois.readInt()
-      (0 until size).map(_ => readEvent(ois))
-    } catch {
-      case e: Exception =>
-        throw new RuntimeException("deserialize failed", e)
-    }
-  }
+  override def hashCode(): Int = System.identityHashCode(this)
 }
+
