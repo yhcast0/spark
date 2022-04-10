@@ -23,15 +23,12 @@ import java.util.concurrent.ConcurrentHashMap
 
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.expressions.objects.SerializerSupport
 import org.apache.spark.sql.catalyst.expressions.{Cast, CreateArray, CreateNamedStruct, Expression, GenericInternalRow, Literal}
+import org.apache.spark.sql.catalyst.expressions.objects.SerializerSupport
 import org.apache.spark.sql.catalyst.util.GenericArrayData
 import org.apache.spark.sql.types._
 import org.apache.spark.unsafe.UTF8StringBuilder
 import org.apache.spark.unsafe.types.UTF8String
-
-import scala.util.control.Breaks.{break, breakable}
-
 
 /**
  * @param windowLit window size in long
@@ -107,6 +104,7 @@ case class WindowFunnel(windowLit: Expression,
     }
   }
 
+  import scala.util.control.Breaks.{break, breakable}
   val hasEqualEvent = {
     val conditions = evtConds.children
     val conditionsLen = conditions.length
@@ -214,30 +212,8 @@ case class WindowFunnel(windowLit: Expression,
       returnRow(1) = -1L
       return returnRow
     }
-    val containsEqualEvent = buffer.filter(_.eids.length > 1).length > 0
-    val offsetMap = new ConcurrentHashMap[String, Integer]()
-    val newBuffer = buffer.sortBy(e => e.ts).map(e => {
-      if (containsEqualEvent) {
-        val eidKey = e.eids.mkString("_")
-        val offset = offsetMap.get(eidKey)
-        if (offset == null) {
-          offsetMap.put(eidKey, 0)
-          e
-        } else {
-          val newOffset = offset + 1
-          if (newOffset + 1 <= e.eids.length) {
-            offsetMap.put(eidKey, newOffset)
-            Event(e.eids, e.ts, e.dim, e.attachPropsArrayMap, e.eids.apply(newOffset))
-          } else {
-            Event(e.eids, e.ts, e.dim, e.attachPropsArrayMap, -1)
-          }
-        }
-      } else {
-        e
-      }
-    })
 
-    val grouped = newBuffer.groupBy(e => e.dim)
+    val grouped = buffer.groupBy(e => e.dim)
     val nullDimEvents = grouped.getOrElse(null, Seq())
 
     val result = grouped.map(e => {
@@ -285,56 +261,97 @@ case class WindowFunnel(windowLit: Expression,
 
   private def longestSeqId(events: Seq[Event]): (Int, Long, Array[Any]) = {
 
-    var returnData = (-1, -1L, new Array[Any](attachPropNum))
+    val seqArrayLen = events.filter(_.eids.contains(0)).length
     var maxStepId = -1
-    if (evtNum < 1) {
-      return returnData
+    if (evtNum < 1 || seqArrayLen == 0) {
+      return (-1, -1L, new Array[Any](attachPropNum))
     }
     val attachCurrentPropValuesMap = new util.HashMap[Long, Array[Any]]()
     val sorted = events.sortBy(e => (e.ts, e.eids.apply(0)))
-    val timestamps = Array.fill[Long](evtNum)(-1)
+
+    val timestamps = Array.fill[Array[Long]](evtNum)(Array.fill[Long](seqArrayLen)(-1))
     var lastId = -1
     sorted.filter(_.eid > -1).foreach(e => {
-      val eid = e.eid
-      if (eid == 0) {
-        val currAttachPropsValues = new Array[Any](attachPropNum)
-        val cacheAttachProps = cacheEvalStepIdPropsArrayExpressionMap.get(eid)
-        if (cacheAttachProps != null) {
-          assignAttachPropValue(cacheAttachProps, currAttachPropsValues, e, eid)
+      e.eids.foreach(eid => {
+        if (eid == 0) {
+          val currAttachPropsValues = new Array[Any](attachPropNum)
+          val cacheAttachProps = cacheEvalStepIdPropsArrayExpressionMap.get(eid)
+          if (cacheAttachProps != null) {
+            assignAttachPropValue(cacheAttachProps, currAttachPropsValues, e, eid)
+          }
+          assignTimestamp(timestamps, eid, e.ts)
+          attachCurrentPropValuesMap.put(e.ts, currAttachPropsValues)
+        } else {
+          val lastStartTimestamps = timestamps.apply(eid - 1).filter(_ > -1)
+          if (lastStartTimestamps.length > 0) {
+            if (hasEqualEvent) {
+              lastStartTimestamps.foreach(lastStartTimestamp => {
+                val currMaxStepId = timestamps.filter(_.contains(lastStartTimestamp)).length
+                if (eid > currMaxStepId -1) {
+                  val handlerStepResult = handlerStep(lastStartTimestamp, e, eid, lastId,
+                    attachCurrentPropValuesMap, timestamps)
+                  if (handlerStepResult) {
+                    lastId = eid
+                  }
+                }
+              })
+            } else {
+              val lastStartTimestamp = lastStartTimestamps.last
+              val handlerStepResult = handlerStep(lastStartTimestamp, e, eid, lastId,
+                attachCurrentPropValuesMap, timestamps)
+              if (handlerStepResult) {
+                lastId = eid
+              }
+            }
+          }
         }
-        if (timestamps(eid) == -1) {
-          returnData = (eid, e.ts, currAttachPropsValues)
-        }
-        timestamps(eid) = e.ts
-        attachCurrentPropValuesMap.put(timestamps(eid), currAttachPropsValues)
-      } else if (timestamps(eid -1) > -1 && timestamps(eid -1) + window >= e.ts) {
-        val cacheAttachProps = cacheEvalStepIdPropsArrayExpressionMap.get(eid)
-        if (lastId != eid
-          && cacheAttachProps != null) {
-          assignAttachPropValue(cacheAttachProps,
-            attachCurrentPropValuesMap.get(timestamps(eid -1)), e, eid)
-        }
-        lastId = eid
-        if (timestamps(eid) == -1) {
-          returnData = (eid, timestamps(eid - 1),
-            attachCurrentPropValuesMap.get(timestamps(0)))
-        }
-        timestamps(eid) = timestamps(eid - 1)
-      }
 
-      if (timestamps.last > -1) {
-        maxStepId = timestamps.length - 1
-        return returnData
-      }
+        val lastTimestamps = timestamps.last.apply(0)
+        if (lastTimestamps > -1) {
+          maxStepId = timestamps.length - 1
+          return (maxStepId, lastTimestamps, attachCurrentPropValuesMap.get(lastTimestamps))
+        }
+
+      })
     })
 
-    maxStepId = timestamps.lastIndexWhere(ts => ts > -1)
-    val eventStartTime = attachCurrentPropValuesMap.get(returnData._2)
-    if (eventStartTime == null) {
-      return (-1, -1, null)
-    }
-    (maxStepId, returnData._2, attachCurrentPropValuesMap.get(returnData._2))
+    maxStepId = timestamps.lastIndexWhere(ts => ts.apply(0) > -1)
+    val lastTimestamps = timestamps.apply(maxStepId).apply(0)
+    (maxStepId, lastTimestamps, attachCurrentPropValuesMap.get(lastTimestamps))
 
+  }
+
+  def handlerStep(lastStartTimestamp: Long, e: Event, eid: Int, lastId: Int,
+                  attachCurrentPropValuesMap: util.HashMap[Long, Array[Any]],
+                  timestamps: Array[Array[Long]]): Boolean = {
+    if (lastStartTimestamp > -1
+      && lastStartTimestamp + window >= e.ts) {
+      val cacheAttachProps = cacheEvalStepIdPropsArrayExpressionMap.get(eid)
+      if (lastId != eid) {
+        if (cacheAttachProps != null) {
+          assignAttachPropValue(cacheAttachProps,
+            attachCurrentPropValuesMap.get(lastStartTimestamp), e, eid)
+        }
+        assignTimestamp(timestamps, eid, lastStartTimestamp)
+        return true
+      }
+    }
+    false
+  }
+
+  def assignTimestamp(timestamps: Array[Array[Long]], eid: Int, ts: Long): Unit = {
+    val startTimestamps = timestamps.apply(eid)
+    breakable {
+      for (i <- 0 until startTimestamps.length) {
+        if (startTimestamps.apply(i) == ts) {
+          break()
+        }
+        if (startTimestamps.apply(i) == -1) {
+          startTimestamps(i) = ts
+          break()
+        }
+      }
+    }
   }
 
   def assignAttachPropValue(cacheAttachProps: Expression,

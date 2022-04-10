@@ -434,7 +434,103 @@ class TypedImperativeAggregateSuite extends QueryTest with SharedSparkSession {
     checkAnswer (df, expected.toDF () )
   }
 
-  test ("test window funnel 0002") {
+  ignore ("test window funnel 0004") {
+    val colNames = Seq ("event_id", "user_id", "uid", "event_time", "access_time",
+      "string1", "string2", "int1", "int2",
+      "bigint1", "bigint2", "double1", "double2", "id")
+    val df1 = Seq (
+      (0, 100000001, "200000001", "1647581938058", "1647581638051",
+        "string_1", "string_2", 1, 2, 1L, 2L, 1d, 2d, 6)
+      , (1, 100000001, "200000002", "1647581938059", "1647581638052",
+        "string_1", "string_2", 1, 2, 1L, 2L, 1d, 2d, 7)
+      , (0, 100000001, "200000003", "1647581938060", "1647581638053",
+        "string_1", "string_2", 1, 2, 1L, 2L, 1d, 2d, 8)
+      , (1, 100000001, "200000004", "1647581938061", "1647581638054",
+        "string_1", "string_2", 1, 2, 1L, 2L, 1d, 2d, 9)
+      , (0, 100000001, "200000005", "1647581938062", "1647581638055",
+        "string_1", "string_2", 1, 2, 1L, 2L, 1d, 2d, 10)
+      , (1, 100000001, "200000006", "1647581938063", "1647581638056",
+        "string_1", "string_2", 1, 2, 1L, 2L, 1d, 2d, 11)
+      , (1, 100000001, "200000007", "1647581938064", "1647581638057",
+        "string_1", "string_2", 1, 2, 1L, 2L, 1d, 2d, 12)
+      , (2, 100000001, "200000008", "1647581938065", "1647581638058",
+        "string_1", "string_2", 1, 2, 1L, 2L, 1d, 2d, 13)
+    ).toDF (colNames: _*)
+    df1.createOrReplaceTempView ("events1")
+    checkWindowAnswer (spark.sql (
+      "select user_id, window_funnel(\n" +
+        " 5 * 24 * 60 * 60,\n" +
+        " 6,\n" +
+        " event_time,\n" +
+        " case when event_id = 0 then '0, 2'\n" +
+        " when event_id = 1 then '1,3'\n" +
+        " when event_id = 2 then '4'\n" +
+        " else '-1' end,\n" +
+        " bigint1,\n" +
+        " struct(struct(2, user_id), struct(1, id), struct(3, id)) ) seq\n" +
+        "from events1\n" +
+        "where id >=6 and id <=35\n" +
+        "group by user_id\n" +
+        "order by seq desc\n" +
+        "LIMIT 500"
+    ), Seq ((901, 5), (902, 2) ) )
+  }
+
+  ignore ("test window funnel 0003") {
+    val colNames = Seq ("event_id", "user_id", "uid", "event_time", "access_time",
+      "string1", "string2", "int1", "int2",
+      "bigint1", "bigint2", "double1", "double2", "id")
+    val df1 = Seq (
+      (0, 100000001, "200000001", "1647581938058", "1747581638051",
+        "string_1", "string_2", 1, 2, 1L, 2L, 1d, 2d, 6)
+      , (1, 100000001, "200000002", "1647581938059", "1747581638052",
+        "string_1", "string_2", 1, 2, 1L, 2L, 1d, 2d, 7)
+      , (2, 100000001, "200000003", "1647581938060", "1747581638053",
+        "string_1", "string_2", 1, 2, 1L, 2L, 1d, 2d, 8)
+      , (0, 100000001, "200000004", "1647581938061", "1747581638054",
+        "string_1", "string_2", 1, 2, 1L, 2L, 1d, 2d, 9)
+      , (1, 100000001, "200000005", "1647581938062", "1747581638055",
+        "string_1", "string_2", 1, 2, 1L, 2L, 1d, 2d, 10)
+      , (2, 100000001, "200000006", "1647581938063", "1747581638056",
+        "string_1", "string_2", 1, 2, 1L, 2L, 1d, 2d, 11)
+      , (3, 100000001, "200000007", "1647581938064", "1747581638057",
+        "string_1", "string_2", 1, 2, 1L, 2L, 1d, 2d, 12)
+      , (4, 100000001, "200000008", "1647581938065", "1747581638058",
+        "string_1", "string_2", 1, 2, 1L, 2L, 1d, 2d, 13)
+      , (0, 100000001, "200000009", "1647581938066", "1747581638059",
+        "string_1", "string_2", 1, 2, 1L, 2L, 1d, 2d, 14)
+      , (1, 100000001, "200000010", "1647581938067", "1747581638060",
+        "string_1", "string_2", 1, 2, 1L, 2L, 1d, 2d, 15)
+      , (2, 100000001, "200000011", "1647581938068", "1747581638061",
+        "string_1", "string_2", 1, 2, 1L, 2L, 1d, 2d, 16)
+      , (3, 100000001, "200000012", "1647581938069", "1747581638062",
+        "string_1", "string_2", 1, 2, 1L, 2L, 1d, 2d, 17)
+      , (0, 100000002, "200000013", "1647581938070", "1747581638063",
+        "string_1", "string_2", 1, 2, 1L, 2L, 1d, 2d, 18)
+    ).toDF (colNames: _*)
+    df1.createOrReplaceTempView ("events1")
+    checkWindowAnswer (spark.sql (
+      "select user_id, window_funnel(\n" +
+        " 5 * 24 * 60 * 60,\n" +
+        " 6,\n" +
+        " event_time,\n" +
+        " case when event_id = 0 then '0'\n" +
+        " when event_id = 1 then '1'\n" +
+        " when event_id = 2 then '2'\n" +
+        " when event_id = 3 then '3'\n" +
+        " when event_id = 4 then '4'\n" +
+        " else -1 end,\n" +
+        " bigint1,\n" +
+        " struct(struct(2, user_id), struct(1, id), struct(3, id)) ) seq\n" +
+        "from events1\n" +
+        "where id >=6 and id <=35\n" +
+        "group by user_id\n" +
+        "order by seq desc\n" +
+        "LIMIT 500"
+    ), Seq ((901, 5), (902, 2) ) )
+  }
+
+  ignore ("test window funnel 0002") {
     val colNames = Seq ("event_id", "user_id", "uid", "event_time", "access_time",
       "string1", "string2", "int1", "int2",
       "bigint1", "bigint2", "double1", "double2", "id")
@@ -509,7 +605,7 @@ class TypedImperativeAggregateSuite extends QueryTest with SharedSparkSession {
         " case when event_id = 0 or event_id = 2 then '0, 2'\n" +
         " when event_id = 1 then '1'\n" +
         " when event_id = 3 then '3'\n" +
-        " else '4,5' end,\n" +
+        " else -1 end,\n" +
         " bigint1,\n" +
         " struct(struct(2, user_id), struct(1, id), struct(3, id)) ) seq\n" +
         "from events1\n" +
