@@ -23,15 +23,12 @@ import java.util.concurrent.ConcurrentHashMap
 
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.expressions.objects.SerializerSupport
 import org.apache.spark.sql.catalyst.expressions.{Cast, CreateArray, CreateNamedStruct, Expression, GenericInternalRow, Literal}
+import org.apache.spark.sql.catalyst.expressions.objects.SerializerSupport
 import org.apache.spark.sql.catalyst.util.GenericArrayData
 import org.apache.spark.sql.types._
 import org.apache.spark.unsafe.UTF8StringBuilder
 import org.apache.spark.unsafe.types.UTF8String
-
-import scala.util.control.Breaks.{break, breakable}
-
 
 /**
  * @param windowLit window size in long
@@ -107,6 +104,7 @@ case class WindowFunnel(windowLit: Expression,
     }
   }
 
+  import scala.util.control.Breaks.{break, breakable}
   val hasEqualEvent = {
     val conditions = evtConds.children
     val conditionsLen = conditions.length
