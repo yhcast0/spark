@@ -23,7 +23,7 @@ import scala.collection.mutable
 
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.expressions.{CreateMap, Expression}
+import org.apache.spark.sql.catalyst.expressions.{Cast, CreateMap, Expression}
 import org.apache.spark.sql.catalyst.expressions.objects.SerializerSupport
 import org.apache.spark.sql.catalyst.util.GenericArrayData
 import org.apache.spark.sql.types._
@@ -189,7 +189,9 @@ case class Attribution(windowLitExpr: Expression,
 
       eventType match {
         case AttrEvent.TARGET if measureCount > 0 =>
-          val measures = evalToArray(measuresExpr, input).map(v => v.toString.toDouble)
+          val measures = evalToArray(measuresExpr, input).map { m =>
+            if (m == null) 0 else m.toString.toDouble
+          }
           AttrEvent(name, eventType, ts, relatedDim, groupingInfo, 0, measures)
         case _ =>
           AttrEvent(name, eventType, ts, relatedDim, groupingInfo, 0, Array.fill(measureCount)(0))
@@ -476,17 +478,25 @@ object AttrEvent {
 
 
 private object EvalHelper {
-  def evalToBoolean(expr: Expression, input: InternalRow): Boolean = {
-    expr.eval(input).toString.toBoolean
-  }
-
-  def evalToInteger(expr: Expression, input: InternalRow): Int = {
-    expr.eval(input).toString.toInt
-  }
 
   def evalToLong(expr: Expression, input: InternalRow): Long = {
-    expr.eval(input).toString.toLong
+    expr.dataType match {
+      case _: NumericType =>
+        expr.eval(input).toString.toLong
+      case _: TimestampType =>
+        expr.eval(input).toString.toLong / 1000000
+      case _: NullType =>
+        -1L
+      case _ =>
+        // timezone doesn't really matter here
+        val tsColumn = Cast(Cast(expr, TimestampType, Some("UTC")), LongType).eval(input)
+        if (tsColumn == null) {
+          return expr.eval(input).toString.toLong
+        }
+        tsColumn.toString.toLong
+    }
   }
+
 
   def evalToString(expr: Expression, input: InternalRow): String = {
     val raw = expr.eval(input)
