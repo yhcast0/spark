@@ -302,6 +302,7 @@ object FunctionRegistry {
     expression[Min]("min"),
     expression[MinBy]("min_by"),
     expression[Percentile]("percentile"),
+    expression[WindowFunnel]("window_funnel"),
     expression[Skewness]("skewness"),
     expression[ApproximatePercentile]("percentile_approx"),
     expression[ApproximatePercentile]("approx_percentile", true),
@@ -321,6 +322,7 @@ object FunctionRegistry {
     expression[BoolOr]("any", true),
     expression[BoolOr]("some", true),
     expression[BoolOr]("bool_or"),
+    expression[Attribution]("attribution"),
 
     // string functions
     expression[Ascii]("ascii"),
