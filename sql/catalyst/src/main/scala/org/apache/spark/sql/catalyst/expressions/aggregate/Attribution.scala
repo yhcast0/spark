@@ -275,7 +275,7 @@ case class Attribution(windowLitExpr: Expression,
   private def doEvalWithLookAheadEvents(events: Seq[AttrEvent]): Seq[AttrEvent] = {
     // reverse sort by event ts and type
     // types are in ordering of SOURCE, AHEAD, TARGET
-    val sorted = events.sortBy(e => (- e.ts, - e.typeOrdering))
+    val sorted = events.sortBy(e => (- e.ts, - e.typeOrdering, e.name))
 
     val resultEvents = mutable.HashSet[AttrEvent]()
 
