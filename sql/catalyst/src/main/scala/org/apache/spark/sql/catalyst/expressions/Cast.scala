@@ -1768,6 +1768,8 @@ abstract class CastBase extends UnaryExpression with TimeZoneAwareExpression wit
         (c, evPrim, evNull) => code"$evPrim = (float) (${timestampToDoubleCode(c)});"
       case DecimalType() =>
         (c, evPrim, evNull) => code"$evPrim = $c.toFloat();"
+      case DoubleType =>
+        (c, evPrim, evNull) => code"$evPrim = $c.floatValue();"
       case x: NumericType =>
         (c, evPrim, evNull) => code"$evPrim = (float) $c;"
     }
