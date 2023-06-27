@@ -203,7 +203,8 @@
     <tink.version>1.6.0</tink.version>
     <tomcat.version>9.0.63</tomcat.version>
     <tomcat-embed-core.version>9.0.76</tomcat-embed-core.version>
-    <netty.version>4.1.94.Final</netty.version>
+    <netty.version>4.1.89.Final</netty.version>
+    <netty-handler.version>4.1.94.Final</netty-handler.version>
     <!--
     If you are changing Arrow version specification, please check
     ./python/pyspark/sql/pandas/utils.py, and ./python/setup.py too.
@@ -779,6 +780,11 @@
         <groupId>io.netty</groupId>
         <artifactId>netty-all</artifactId>
         <version>${netty.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>io.netty</groupId>
+        <artifactId>netty-handler</artifactId>
+        <version>${netty-handler.version}</version>
       </dependency>
       <dependency>
         <groupId>org.apache.derby</groupId>
