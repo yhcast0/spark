@@ -1025,19 +1025,13 @@ private[hive] object HiveClientImpl extends Logging {
     } else {
       CharVarcharUtils.getRawTypeString(c.metadata).getOrElse(c.dataType.catalogString)
     }
-//    new FieldSchema(c.name, typeString, c.getComment().orNull)
-    val fieldSchema = new FieldSchema()
-    fieldSchema.setName(c.name)
-    fieldSchema.setType(typeString)
-    fieldSchema.setComment(c.getComment().orNull)
-    fieldSchema
+    new FieldSchema(c.name, typeString, c.getComment().orNull)
   }
 
   /** Get the Spark SQL native DataType from Hive's FieldSchema. */
   private def getSparkSQLDataType(hc: FieldSchema): DataType = {
     try {
-      val dataType = hc.getType.replaceAll(",ORACLE", "")
-      CatalystSqlParser.parseDataType(dataType)
+      CatalystSqlParser.parseDataType(hc.getType)
     } catch {
       case e: ParseException =>
         throw QueryExecutionErrors.cannotRecognizeHiveTypeError(e, hc.getType, hc.getName)
