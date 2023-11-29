@@ -127,6 +127,18 @@
       <scope>${hive.shims.scope}</scope>
     </dependency>
     <dependency>
+      <groupId>io.transwarp.inceptor</groupId>
+      <artifactId>inceptor-shaded</artifactId>
+      <version>1.0-SNAPSHOT</version>
+      <scope>${hive.serde.scope}</scope>
+      <exclusions>
+        <exclusion>
+          <groupId>org.apache.hive</groupId>
+          <artifactId>inceptor-serde</artifactId>
+        </exclusion>
+      </exclusions>
+    </dependency>
+    <dependency>
       <groupId>org.apache.hive</groupId>
       <artifactId>hive-llap-common</artifactId>
       <scope>${hive.llap.scope}</scope>
