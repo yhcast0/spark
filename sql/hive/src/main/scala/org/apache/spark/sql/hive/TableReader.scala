@@ -17,6 +17,7 @@
 
 package org.apache.spark.sql.hive
 
+import io.kyligence.compact.inceptor.PartitionHelper
 import io.transwarp.hive.shaded.serde2.objectinspector.ObjectInspectorConverters
 import io.transwarp.hive.shaded.serde2.objectinspector.primitive.DateObjectInspector
 import org.apache.hadoop.conf.Configuration
@@ -215,7 +216,7 @@ class HadoopTableReader(
 
     val hivePartitionRDDs = verifyPartitionPath(partitionToDeserializer)
       .map { case (partition, partDeserializer) =>
-      val partDesc = Utilities.getPartitionDescFromTableDesc(tableDesc, partition, true)
+      val partDesc = Utilities.getPartitionDesc(partition)
       var partPath = partition.getDataLocation
       val inputPathStr = applyFilterIfNeeded(partPath, filterOpt)
       val skipHeaderLineCount =
@@ -223,7 +224,7 @@ class HadoopTableReader(
       val isTextInputFormatTable =
         classOf[TextInputFormat].isAssignableFrom(partDesc.getInputFileFormatClass)
       // Get partition field info
-      val partSpec = partDesc.getPartSpec
+      val partSpec = PartitionHelper.getPartSpec(partDesc)
       val partProps = partDesc.getProperties
 
       val partColsDelimited: String = partProps.getProperty(META_TABLE_PARTITION_COLUMNS)

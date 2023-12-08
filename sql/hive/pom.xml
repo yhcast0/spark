@@ -96,6 +96,7 @@
       <version>${protobuf.version}</version>
     </dependency>
 -->
+
     <dependency>
       <groupId>${hive.group}</groupId>
       <artifactId>hive-common</artifactId>
@@ -127,18 +128,6 @@
       <scope>${hive.shims.scope}</scope>
     </dependency>
     <dependency>
-      <groupId>io.transwarp.inceptor</groupId>
-      <artifactId>inceptor-shaded</artifactId>
-      <version>1.0-SNAPSHOT</version>
-      <scope>${hive.serde.scope}</scope>
-      <exclusions>
-        <exclusion>
-          <groupId>org.apache.hive</groupId>
-          <artifactId>inceptor-serde</artifactId>
-        </exclusion>
-      </exclusions>
-    </dependency>
-    <dependency>
       <groupId>org.apache.hive</groupId>
       <artifactId>hive-llap-common</artifactId>
       <scope>${hive.llap.scope}</scope>
@@ -152,6 +141,26 @@
       <groupId>org.apache.hive</groupId>
       <artifactId>hive-contrib</artifactId>
       <scope>compile</scope>
+    </dependency>
+    <dependency>
+      <groupId>io.transwarp.inceptor</groupId>
+      <artifactId>inceptor-shaded</artifactId>
+      <version>1.0-SNAPSHOT</version>
+      <scope>${hive.serde.scope}</scope>
+      <exclusions>
+        <exclusion>
+          <groupId>org.apache.hive</groupId>
+          <artifactId>inceptor-serde</artifactId>
+        </exclusion>
+        <exclusion>
+          <groupId>org.apache.hive</groupId>
+          <artifactId>inceptor-exec</artifactId>
+        </exclusion>
+        <exclusion>
+          <groupId>org.apache.hive</groupId>
+          <artifactId>inceptor-metastore</artifactId>
+        </exclusion>
+      </exclusions>
     </dependency>
     <!-- hive-serde already depends on avro, but this brings in customized config of avro deps from parent -->
     <dependency>
