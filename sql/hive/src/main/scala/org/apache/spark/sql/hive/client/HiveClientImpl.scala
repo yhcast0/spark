@@ -102,7 +102,7 @@ private[hive] class HiveClientImpl(
   import HiveClientImpl._
 
   // Circular buffer to hold what hive prints to STDOUT and ERR.  Only printed when failures occur.
-  private val outputBuffer = new CircularBuffer()
+  private[hive] val outputBuffer = new CircularBuffer()
 
   private val shim = version match {
     case hive.v12 => new Shim_v0_12()
