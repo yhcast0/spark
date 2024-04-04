@@ -1119,7 +1119,8 @@ object SparkSession extends Logging {
 
   private def sessionStateClassName(conf: SparkConf): String = {
     conf.get(CATALOG_IMPLEMENTATION) match {
-      case "hive" => HIVE_SESSION_STATE_BUILDER_CLASS_NAME
+      case "hive" => conf.get("spark.sql.session.state.builder",
+        HIVE_SESSION_STATE_BUILDER_CLASS_NAME)
       case "in-memory" => classOf[SessionStateBuilder].getCanonicalName
     }
   }

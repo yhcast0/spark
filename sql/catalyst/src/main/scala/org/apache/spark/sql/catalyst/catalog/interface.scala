@@ -876,4 +876,7 @@ case class HiveTableRelation(
     val metadataStr = truncatedString(metadataEntries, "[", ", ", "]", maxFields)
     s"$nodeName $metadataStr"
   }
+
+  var needPriv: Boolean = false
+  var skipPrivCheck: Boolean = false
 }
