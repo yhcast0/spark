@@ -257,6 +257,7 @@ statement
     | SET .*?                                                          #setConfiguration
     | RESET configKey                                                  #resetQuotedConfiguration
     | RESET .*?                                                        #resetConfiguration
+    | EMPOWER (TABLE tableIdentifier)* TO                              #empowerTable
     | unsupportedHiveNativeCommands .*?                                #failNativeCommand
     ;
 
@@ -1347,6 +1348,7 @@ nonReserved
     | DIV
     | DROP
     | ELSE
+    | EMPOWER
     | END
     | ESCAPE
     | ESCAPED
@@ -1602,6 +1604,7 @@ DISTRIBUTE: 'DISTRIBUTE';
 DIV: 'DIV';
 DROP: 'DROP';
 ELSE: 'ELSE';
+EMPOWER: 'EMPOWER';
 END: 'END';
 ESCAPE: 'ESCAPE';
 ESCAPED: 'ESCAPED';
