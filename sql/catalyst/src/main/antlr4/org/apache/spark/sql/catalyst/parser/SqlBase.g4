@@ -247,7 +247,7 @@ statement
     | MSCK REPAIR TABLE multipartIdentifier
         (option=(ADD|DROP|SYNC) PARTITIONS)?                           #repairTable
     | op=(ADD | LIST) identifier .*?                                   #manageResource
-    | SET ROLE .*?                                                     #failNativeCommand
+    | SET ROLE .*?                                                     #setRole
     | SET TIME ZONE interval                                           #setTimeZone
     | SET TIME ZONE timezone=(STRING | LOCAL)                          #setTimeZone
     | SET TIME ZONE .*?                                                #setTimeZone
