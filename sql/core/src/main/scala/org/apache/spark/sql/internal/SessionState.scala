@@ -19,10 +19,8 @@ package org.apache.spark.sql.internal
 
 import java.io.File
 import java.net.URI
-
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.Path
-
 import org.apache.spark.annotation.Unstable
 import org.apache.spark.sql._
 import org.apache.spark.sql.catalyst.analysis.{Analyzer, FunctionRegistry, TableFunctionRegistry}
@@ -93,6 +91,10 @@ private[sql] class SessionState(
   // The streamingQueryManager is lazy to avoid creating a StreamingQueryManager for each session
   // when connecting to ThriftServer.
   lazy val streamingQueryManager: StreamingQueryManager = streamingQueryManagerBuilder()
+
+  var preExecutionRules: Seq[Rule[SparkPlan]] = _
+
+  val sessionStateListenerManager: SessionStateListenerManager = new SessionStateListenerManager()
 
   def catalogManager: CatalogManager = analyzer.catalogManager
 

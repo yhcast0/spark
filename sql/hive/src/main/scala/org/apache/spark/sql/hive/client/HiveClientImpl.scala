@@ -162,7 +162,9 @@ private[hive] class HiveClientImpl(
 
   private def newState(): SessionState = {
     val hiveConf = newHiveConf(sparkConf, hadoopConf, extraConfig, Some(initClassLoader))
-    val state = new SessionState(hiveConf)
+    val user = Utils.getCurrentUserName()
+    logInfo(s"newState user: ${user}")
+    val state = new SessionState(hiveConf, user)
     if (clientLoader.cachedHive != null) {
       Hive.set(clientLoader.cachedHive.asInstanceOf[Hive])
     }
@@ -270,7 +272,7 @@ private[hive] class HiveClientImpl(
     false
   }
 
-  private def client: Hive = {
+  def client: Hive = {
     if (clientLoader.cachedHive != null) {
       clientLoader.cachedHive.asInstanceOf[Hive]
     } else {
@@ -1273,8 +1275,8 @@ private[hive] object HiveClientImpl extends Logging {
     // 3: we set all entries in config to this hiveConf.
     val confMap = (hadoopConf.iterator().asScala.map(kv => kv.getKey -> kv.getValue) ++
       sparkConf.getAll.toMap ++ extraConfig).toMap
-    confMap.foreach { case (k, v) => hiveConf.set(k, v) }
-    SQLConf.get.redactOptions(confMap).foreach { case (k, v) =>
+    confMap.foreach { case (k, v) =>
+      hiveConf.set(k, v)
       logDebug(s"Applying Hadoop/Hive/Spark and extra properties to Hive Conf:$k=$v")
     }
     // Disable CBO because we removed the Calcite dependency.

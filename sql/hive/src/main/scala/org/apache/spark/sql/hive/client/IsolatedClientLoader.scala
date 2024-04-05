@@ -18,18 +18,15 @@
 package org.apache.spark.sql.hive.client
 
 import java.io.File
-import java.lang.reflect.InvocationTargetException
+import java.lang.reflect.{InvocationTargetException}
 import java.net.{URL, URLClassLoader}
 import java.util
-
 import scala.util.Try
-
 import org.apache.commons.io.{FileUtils, IOUtils}
 import org.apache.commons.lang3.{JavaVersion, SystemUtils}
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.hive.conf.HiveConf.ConfVars
 import org.apache.hadoop.hive.shims.ShimLoader
-
 import org.apache.spark.SparkConf
 import org.apache.spark.deploy.SparkSubmitUtils
 import org.apache.spark.internal.Logging
@@ -295,8 +292,11 @@ private[hive] class IsolatedClientLoader(
   private[hive] def createClient(): HiveClient = synchronized {
     val warehouseDir = Option(hadoopConf.get(ConfVars.METASTOREWAREHOUSE.varname))
     if (!isolationOn) {
-      return new HiveClientImpl(version, warehouseDir, sparkConf, hadoopConf, config,
-        baseClassLoader, this)
+      return Thread.currentThread().getContextClassLoader
+        .loadClass(getHiveClientImplClassName())
+        .getConstructors.head
+        .newInstance(version, warehouseDir, sparkConf, hadoopConf, config, baseClassLoader, this)
+        .asInstanceOf[HiveClient]
     }
     // Pre-reflective instantiation setup.
     logDebug("Initializing the logger to avoid disaster...")
@@ -305,7 +305,7 @@ private[hive] class IsolatedClientLoader(
 
     try {
       classLoader
-        .loadClass(classOf[HiveClientImpl].getName)
+        .loadClass(getHiveClientImplClassName())
         .getConstructors.head
         .newInstance(version, warehouseDir, sparkConf, hadoopConf, config, classLoader, this)
         .asInstanceOf[HiveClient]
@@ -328,4 +328,8 @@ private[hive] class IsolatedClientLoader(
    * IsolatedClientLoader).
    */
   private[hive] var cachedHive: Any = null
+
+  private[hive] def getHiveClientImplClassName(): String = {
+    sparkConf.get("spark.sql.hive.implementation", HiveClientImpl.getClass.getName)
+  }
 }

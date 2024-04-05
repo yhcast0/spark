@@ -91,6 +91,8 @@ class SparkSession private(
   // The call site where this SparkSession was constructed.
   private val creationSite: CallSite = Utils.getCallSite()
 
+  private[spark] val sessionStateInitialized: AtomicBoolean = new AtomicBoolean(false)
+
   /**
    * Constructor used in Pyspark. Contains explicit application of Spark Session Extensions
    * which otherwise only occurs during getOrCreate. We cannot add this to the default constructor
@@ -110,7 +112,9 @@ class SparkSession private(
 
   // If there is no active SparkSession, uses the default SQL conf. Otherwise, use the session's.
   SQLConf.setSQLConfGetter(() => {
-    SparkSession.getActiveSession.filterNot(_.sparkContext.isStopped).map(_.sessionState.conf)
+    SparkSession.getActiveSession.filterNot(_.sparkContext.isStopped)
+      .filter(_.sessionStateInitialized.get())
+      .map(_.sessionState.conf)
       .getOrElse(SQLConf.getFallbackConf)
   })
 
@@ -157,6 +161,7 @@ class SparkSession private(
         val state = SparkSession.instantiateSessionState(
           SparkSession.sessionStateClassName(sharedState.conf),
           self)
+        sessionStateInitialized.set(true)
         state
       }
   }

@@ -129,6 +129,10 @@
       <artifactId>xbean-asm9-shaded</artifactId>
     </dependency>
     <dependency>
+      <groupId>io.kyligence.mrs</groupId>
+      <artifactId>mrs-spark-extractor</artifactId>
+    </dependency>
+    <dependency>
       <groupId>org.scalacheck</groupId>
       <artifactId>scalacheck_${scala.binary.version}</artifactId>
       <scope>test</scope>

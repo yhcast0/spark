@@ -70,7 +70,8 @@ class SessionCatalog(
     functionResourceLoader: FunctionResourceLoader,
     functionExpressionBuilder: FunctionExpressionBuilder,
     cacheSize: Int = SQLConf.get.tableRelationCacheSize,
-    cacheTTL: Long = SQLConf.get.metadataCacheTTL) extends SQLConfHelper with Logging {
+    cacheTTL: Long = SQLConf.get.metadataCacheTTL) extends SQLConfHelper
+  with ExtendedProperties with Logging {
   import SessionCatalog._
   import CatalogTypes.TablePartitionSpec
 
