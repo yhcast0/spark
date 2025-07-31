@@ -91,7 +91,7 @@ private[spark] class TaskSchedulerImpl(
 
   // Lazily initializing healthTrackerOpt to avoid getting empty ExecutorAllocationClient,
   // because ExecutorAllocationClient is created after this TaskSchedulerImpl.
-  private[scheduler] lazy val healthTrackerOpt = maybeCreateHealthTracker(sc)
+  private[scheduler] lazy val healthTrackerOpt = maybeCreateHealthTracker()
 
   val conf = sc.conf
 
@@ -193,6 +193,22 @@ private[spark] class TaskSchedulerImpl(
         sc.env.rpcEnv)
       sc.env.rpcEnv.setupEndpoint("barrierSync", barrierCoordinator)
       logInfo("Registered BarrierCoordinator endpoint")
+    }
+  }
+
+  private def maybeCreateHealthTracker(): Option[HealthTracker] = {
+    if (HealthTracker.isExcludeOnFailureEnabled(sc.conf)) {
+      val executorAllocClient: Option[ExecutorAllocationClient] = backend match {
+        case b: ExecutorAllocationClient =>
+          logInfo(s"ExecutorAllocationClient found on health tracker creation: $b")
+          Some(b)
+        case _ =>
+          logWarning(s"ExecutorAllocationClient not found on health tracker creation: ${backend}")
+          None
+      }
+      Some(new HealthTracker(sc, executorAllocClient))
+    } else {
+      None
     }
   }
 
@@ -1275,18 +1291,6 @@ private[spark] object TaskSchedulerImpl {
     }
 
     retval.toList
-  }
-
-  private def maybeCreateHealthTracker(sc: SparkContext): Option[HealthTracker] = {
-    if (HealthTracker.isExcludeOnFailureEnabled(sc.conf)) {
-      val executorAllocClient: Option[ExecutorAllocationClient] = sc.schedulerBackend match {
-        case b: ExecutorAllocationClient => Some(b)
-        case _ => None
-      }
-      Some(new HealthTracker(sc, executorAllocClient))
-    } else {
-      None
-    }
   }
 
 }
