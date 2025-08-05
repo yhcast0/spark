@@ -57,6 +57,7 @@ private[scheduler] class HealthTracker (
 
   def this(sc: SparkContext, allocationClient: Option[ExecutorAllocationClient]) = {
     this(sc.listenerBus, sc.conf, allocationClient)
+    this.sc = sc
   }
 
   HealthTracker.validateExcludeOnFailureConfs(conf)
@@ -67,6 +68,9 @@ private[scheduler] class HealthTracker (
     conf.get(config.EXCLUDE_ON_FAILURE_FETCH_FAILURE_ENABLED)
   private val EXCLUDE_ON_FAILURE_DECOMMISSION_ENABLED =
     conf.get(config.EXCLUDE_ON_FAILURE_DECOMMISSION_ENABLED)
+
+  private var sc: SparkContext = _
+  private var _allocationClientBak: Option[ExecutorAllocationClient] = _
 
   /**
    * A map from executorId to information on task failures. Tracks the time of each task failure,
@@ -162,7 +166,7 @@ private[scheduler] class HealthTracker (
     } else {
       msg
     }
-    allocationClient match {
+    getAllocationClient match {
       case Some(a) =>
         logInfo(fullMsg)
         if (EXCLUDE_ON_FAILURE_DECOMMISSION_ENABLED) {
@@ -193,7 +197,7 @@ private[scheduler] class HealthTracker (
 
   private def killExecutorsOnExcludedNode(node: String): Unit = {
     if (conf.get(config.EXCLUDE_ON_FAILURE_KILL_ENABLED)) {
-      allocationClient match {
+      getAllocationClient match {
         case Some(a) =>
           if (EXCLUDE_ON_FAILURE_DECOMMISSION_ENABLED) {
             logInfo(s"Decommissioning all executors on excluded host $node " +
@@ -212,6 +216,26 @@ private[scheduler] class HealthTracker (
           logWarning(s"Not attempting to kill executors on excluded host $node " +
             s"since allocation client is not defined.")
       }
+    }
+  }
+
+  private def getAllocationClient: Option[ExecutorAllocationClient] = {
+    if (allocationClient != null && allocationClient.isDefined) {
+      allocationClient
+    } else if (_allocationClientBak != null) {
+      _allocationClientBak
+    } else if (sc != null) {
+      _allocationClientBak = sc.schedulerBackend match {
+        case b: ExecutorAllocationClient =>
+          logInfo(s"ExecutorAllocationClient found: $b")
+          Some(b)
+        case _ =>
+          logWarning(s"ExecutorAllocationClient not found: ${sc.schedulerBackend}")
+          None
+      }
+      _allocationClientBak
+    } else {
+      None
     }
   }
 
