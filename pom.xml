@@ -189,7 +189,7 @@
     <datanucleus-core.version>4.1.17</datanucleus-core.version>
     <guava.version>14.0.1</guava.version>
     <janino.version>3.1.6</janino.version>
-    <jersey.version>2.35</jersey.version>
+    <jersey.version>2.46</jersey.version>
     <joda.version>2.10.10</joda.version>
     <jodd.version>5.3.0</jodd.version>
     <jsr305.version>3.0.0</jsr305.version>
@@ -203,8 +203,8 @@
     <commons-cli.version>1.5.0</commons-cli.version>
     <bouncycastle.version>1.60</bouncycastle.version>
     <tink.version>1.6.1</tink.version>
-    <tomcat.version>9.0.108</tomcat.version>
-    <tomcat-embed-core.version>9.0.108</tomcat-embed-core.version>
+    <tomcat.version>9.0.109</tomcat.version>
+    <tomcat-embed-core.version>9.0.109</tomcat-embed-core.version>
     <netty.version>4.1.125.Final</netty.version>
     <netty-handler.version>4.1.125.Final</netty-handler.version>
     <stax2-api.version>4.2.1</stax2-api.version>
@@ -217,6 +217,7 @@
     <!-- org.fusesource.leveldbjni will be used except on arm64 platform. -->
     <leveldbjni.group>org.fusesource.leveldbjni</leveldbjni.group>
     <kubernetes-client.version>5.12.2</kubernetes-client.version>
+    <okhttp3.version>4.9.3</okhttp3.version>
 
     <test.java.home>${java.home}</test.java.home>
 
