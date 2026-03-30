@@ -89,8 +89,14 @@ private[spark] class BroadcastManager(
     if (cachedBroadcast.containsKey(timedExecutionId)) {
       val lock = executionLocks.computeIfAbsent(timedExecutionId, _ => new Object())
       lock.synchronized {
-        val bids = cachedBroadcast.remove(timedExecutionId)
-        log.debug(s"Keep broadcasts for executionId=${executionId} and bids=${bids.mkString(",")}")
+        try {
+          val bids = cachedBroadcast.remove(timedExecutionId)
+          log.debug(s"Keep broadcasts for executionId=${executionId}" +
+            s" and bids=${bids.mkString(",")}")
+        } catch {
+          case e: Throwable => logError(
+            s"Error while keeping broadcasts for executionId=${executionId}", e)
+        }
       }
       executionLocks.remove(timedExecutionId)
     }
@@ -101,14 +107,19 @@ private[spark] class BroadcastManager(
     if (cachedBroadcast.containsKey(timedExecutionId)) {
       val lock = executionLocks.computeIfAbsent(timedExecutionId, _ => new Object())
       lock.synchronized {
-        val bids = cachedBroadcast.get(timedExecutionId)
-        bids.foreach(broadcastId =>
-          unbroadcast(broadcastId, removeFromDriver = true, blocking = false))
-        cachedBroadcast.remove(timedExecutionId)
-        if (log.isDebugEnabled()) {
-          log.debug(
-            s"Finally Clean broadcasts for executionId=${executionId}" +
-              s" and size=${bids.length} and bids=${bids.mkString(",")}")
+        try {
+          val bids = cachedBroadcast.get(timedExecutionId)
+          bids.foreach(broadcastId =>
+            unbroadcast(broadcastId, removeFromDriver = true, blocking = false))
+          cachedBroadcast.remove(timedExecutionId)
+          if (log.isDebugEnabled()) {
+            log.debug(
+              s"Finally Clean broadcasts for executionId=${executionId}" +
+                s" and size=${bids.length} and bids=${bids.mkString(",")}")
+          }
+        } catch {
+          case e: Throwable => logError(
+            s"Error while cleaning broadcasts for executionId=${executionId}", e)
         }
       }
       executionLocks.remove(timedExecutionId)
